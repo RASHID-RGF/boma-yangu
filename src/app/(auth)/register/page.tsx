@@ -140,7 +140,7 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm text-gray-500">
           Already have an account?{' '}
-          <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
+          <Link href="/login" className="text-[#e2b714] hover:text-[#f5d742] font-medium">
             Sign in
           </Link>
         </p>

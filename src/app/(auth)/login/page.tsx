@@ -71,9 +71,8 @@ export default function LoginPage() {
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
             <span className="text-sm text-gray-600">Remember me</span>
-          </label>
-          <Link href="/forgot-password" className="text-sm text-primary-600 hover:text-primary-700 font-medium">
-            Forgot password?
+          </label>            <Link href="/forgot-password" className="text-sm text-[#e2b714] hover:text-[#f5d742] font-medium">
+              Forgot password?
           </Link>
         </div>
 
@@ -83,7 +82,7 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-gray-500">
           Don&apos;t have an account?{' '}
-          <Link href="/register" className="text-primary-600 hover:text-primary-700 font-medium">
+          <Link href="/register" className="text-[#e2b714] hover:text-[#f5d742] font-medium">
             Create one
           </Link>
         </p>

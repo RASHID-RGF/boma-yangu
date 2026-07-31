@@ -251,19 +251,13 @@ export default function LandingPage() {
             Trusted by Kenyan Landlords
           </div>
 
-          {/* Main Heading */}
-          <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold leading-[1.1] mb-6 tracking-tight">
-            <span className="text-[#d4d4d4]">
-              Manage Your Rental
-            </span>
-            <br />
-            <span className="gradient-gold">
-              Properties
-            </span>
-            <br />
-            <span className="text-[#d4d4d4]">
-              With Ease
-            </span>
+          {/* Main Heading - Horizontal */}
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.2] mb-6 tracking-tight flex items-center justify-center gap-4 flex-wrap">
+            <span className="text-[#d4d4d4]">Rent</span>
+            <span className="text-[#585858] text-2xl md:text-3xl lg:text-4xl font-light">/</span>
+            <span className="gradient-gold">Manage</span>
+            <span className="text-[#585858] text-2xl md:text-3xl lg:text-4xl font-light">/</span>
+            <span className="text-[#d4d4d4]">Grow</span>
           </h1>
 
           {/* Typewriter Subtitle */}

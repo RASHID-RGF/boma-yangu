@@ -66,7 +66,7 @@ export default function ForgotPasswordPage() {
         </Button>
         <p className="text-center text-sm text-gray-500">
           Remember your password?{' '}
-          <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
+          <Link href="/login" className="text-[#e2b714] hover:text-[#f5d742] font-medium">
             Sign in
           </Link>
         </p>

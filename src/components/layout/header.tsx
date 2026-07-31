@@ -3,7 +3,7 @@
 import { useAuth } from '@/hooks/useAuth';
 import { Bell, Search, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { getInitials } from '@/lib/utils/format';
 
 interface HeaderProps {
