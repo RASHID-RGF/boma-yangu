@@ -18,6 +18,8 @@ import {
   Clock,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { SettingsProvider } from '@/lib/settings/context';
+import { SettingsToggleButton, SettingsPanel } from '@/components/settings/settings-panel';
 
 function FloatingParticles() {
   return (
@@ -186,7 +188,8 @@ export default function LandingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0f0f1a] overflow-hidden noise-overlay">
+    <SettingsProvider>
+    <div className="min-h-screen bg-[var(--settings-bg,#0f0f1a)] overflow-hidden noise-overlay" data-settings-root>
       {/* Grid Background */}
       <div
         className="fixed inset-0 pointer-events-none opacity-30"
@@ -431,6 +434,11 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* Settings */}
+      <SettingsToggleButton />
+      <SettingsPanel />
     </div>
+    </SettingsProvider>
   );
 }
