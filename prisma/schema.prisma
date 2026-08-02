@@ -178,6 +178,8 @@ model Payment {
   method        String
   transactionCode String? @unique
   receiptNumber String?  @unique
+  checkoutRequestId String?
+  phoneNumber   String?
   paymentDate   DateTime @default(now())
   recordedAt    DateTime @default(now())
   isPartial     Boolean  @default(false)

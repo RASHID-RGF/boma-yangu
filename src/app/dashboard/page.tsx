@@ -9,22 +9,36 @@ import { useDashboardStore } from '@/store/dashboard';
 import { formatCurrency, formatDate, formatPercentage } from '@/lib/utils/format';
 import type { DashboardStats } from '@/types';
 import {
-  Building2, DoorOpen, Users, Wallet, TrendingUp, AlertCircle,
+  Building2, DoorOpen, Users, Wallet, TrendingUp, AlertCircle, FileText,
   Wrench, ArrowUpRight, ArrowDownRight, Plus, MoreHorizontal,
   CalendarDays, Download, RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useAuth } from '@/hooks/useAuth';
+import { UserRole } from '@/types';
 
-const quickActions = [
+// Management-only quick actions (properties/tenants/payments are landlord & manager sections)
+const MANAGEMENT_ACTIONS = [
   { label: 'Add Property', href: '/properties/new', icon: Building2, color: 'bg-blue-500' },
   { label: 'Add Tenant', href: '/tenants/new', icon: Users, color: 'bg-emerald-500' },
   { label: 'Record Payment', href: '/payments', icon: Wallet, color: 'bg-purple-500' },
+];
+
+// Available to everyone (maintenance concerns all roles)
+const GENERAL_ACTIONS = [
   { label: 'Report Issue', href: '/maintenance', icon: Wrench, color: 'bg-amber-500' },
 ];
 
 export default function DashboardPage() {
   const { stats, loading, fetchStats } = useDashboardStore();
+  const { user } = useAuth();
   const [greeting, setGreeting] = useState('Good morning');
+
+  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
+  const quickActions = [
+    ...(isManagement ? MANAGEMENT_ACTIONS : []),
+    ...GENERAL_ACTIONS,
+  ];
 
   useEffect(() => {
     fetchStats();
@@ -34,44 +48,124 @@ export default function DashboardPage() {
     else setGreeting('Good evening');
   }, [fetchStats]);
 
-  const statCards = [
-    {
-      label: 'Total Properties',
-      value: stats?.totalProperties ?? 0,
-      icon: Building2,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50',
-      trend: '+2 this month',
-      trendUp: true,
-    },
-    {
-      label: 'Total Units',
-      value: stats?.totalUnits ?? 0,
-      icon: DoorOpen,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
-      trend: `${formatPercentage(stats?.occupancyRate ?? 0)} occupied`,
-      trendUp: true,
-    },
-    {
-      label: 'Active Tenants',
-      value: stats?.totalTenants ?? 0,
-      icon: Users,
-      color: 'text-purple-600',
-      bg: 'bg-purple-50',
-      trend: '12 new this month',
-      trendUp: true,
-    },
-    {
-      label: 'Monthly Revenue',
-      value: formatCurrency(stats?.monthlyRevenue ?? 0),
-      icon: Wallet,
-      color: 'text-amber-600',
-      bg: 'bg-amber-50',
-      trend: `${formatCurrency(stats?.outstandingBalances ?? 0)} outstanding`,
-      trendUp: false,
-    },
-  ];
+  // Role-aware stat cards: managers see the full financial view,
+  // tenants see their own obligations, caretakers see the maintenance workload.
+  const statCards = !isManagement
+    ? user?.role === UserRole.CARETAKER
+      ? [
+          {
+            label: 'Pending Maintenance',
+            value: stats?.pendingMaintenance ?? 0,
+            icon: Wrench,
+            color: 'text-amber-600',
+            bg: 'bg-amber-50',
+            trend: 'Requests to attend',
+            trendUp: true,
+          },
+          {
+            label: 'Total Units',
+            value: stats?.totalUnits ?? 0,
+            icon: DoorOpen,
+            color: 'text-emerald-600',
+            bg: 'bg-emerald-50',
+            trend: `${formatPercentage(stats?.occupancyRate ?? 0)} occupied`,
+            trendUp: true,
+          },
+          {
+            label: 'Vacant Units',
+            value: stats?.vacantUnits ?? 0,
+            icon: Building2,
+            color: 'text-blue-600',
+            bg: 'bg-blue-50',
+            trend: 'Ready to fill',
+            trendUp: true,
+          },
+          {
+            label: 'Outstanding Balances',
+            value: formatCurrency(stats?.outstandingBalances ?? 0),
+            icon: Wallet,
+            color: 'text-purple-600',
+            bg: 'bg-purple-50',
+            trend: 'Across all units',
+            trendUp: false,
+          },
+        ]
+      : [
+          {
+            label: 'Amount Due',
+            value: formatCurrency(stats?.outstandingBalances ?? 0),
+            icon: Wallet,
+            color: 'text-amber-600',
+            bg: 'bg-amber-50',
+            trend: 'Your outstanding balance',
+            trendUp: false,
+          },
+          {
+            label: 'Pending Maintenance',
+            value: stats?.pendingMaintenance ?? 0,
+            icon: Wrench,
+            color: 'text-emerald-600',
+            bg: 'bg-emerald-50',
+            trend: 'Open requests',
+            trendUp: true,
+          },
+          {
+            label: 'My Payments',
+            value: stats?.recentPayments?.length ?? 0,
+            icon: FileText,
+            color: 'text-blue-600',
+            bg: 'bg-blue-50',
+            trend: 'Recorded this period',
+            trendUp: true,
+          },
+          {
+            label: 'Occupancy Rate',
+            value: formatPercentage(stats?.occupancyRate ?? 0),
+            icon: TrendingUp,
+            color: 'text-purple-600',
+            bg: 'bg-purple-50',
+            trend: 'Estate occupancy',
+            trendUp: true,
+          },
+        ]
+    : [
+        {
+          label: 'Total Properties',
+          value: stats?.totalProperties ?? 0,
+          icon: Building2,
+          color: 'text-blue-600',
+          bg: 'bg-blue-50',
+          trend: '+2 this month',
+          trendUp: true,
+        },
+        {
+          label: 'Total Units',
+          value: stats?.totalUnits ?? 0,
+          icon: DoorOpen,
+          color: 'text-emerald-600',
+          bg: 'bg-emerald-50',
+          trend: `${formatPercentage(stats?.occupancyRate ?? 0)} occupied`,
+          trendUp: true,
+        },
+        {
+          label: 'Active Tenants',
+          value: stats?.totalTenants ?? 0,
+          icon: Users,
+          color: 'text-purple-600',
+          bg: 'bg-purple-50',
+          trend: '12 new this month',
+          trendUp: true,
+        },
+        {
+          label: 'Monthly Revenue',
+          value: formatCurrency(stats?.monthlyRevenue ?? 0),
+          icon: Wallet,
+          color: 'text-amber-600',
+          bg: 'bg-amber-50',
+          trend: `${formatCurrency(stats?.outstandingBalances ?? 0)} outstanding`,
+          trendUp: false,
+        },
+      ];
 
   if (loading && !stats) {
     return (
@@ -99,19 +193,23 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{greeting} 👋</h1>
-            <p className="text-gray-500 mt-1">Here&apos;s what&apos;s happening with your properties today.</p>
+            <p className="text-gray-500 mt-1">
+              {isManagement ? "Here's what's happening with your properties today." : "Here's what's happening in your community today."}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <Button variant="outline" size="sm" onClick={fetchStats}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
             </Button>
-            <Link href="/reports">
-              <Button variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-2" />
-                Export
-              </Button>
-            </Link>
+            {isManagement && (
+              <Link href="/reports">
+                <Button variant="outline" size="sm">
+                  <Download className="w-4 h-4 mr-2" />
+                  Export
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
 

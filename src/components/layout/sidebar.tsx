@@ -23,9 +23,9 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  Home,
 } from 'lucide-react';
 import { useSettings } from '@/lib/settings/context';
+import { MANAGEMENT_ROLES, OPERATIONS_ROLES, FINANCIAL_ROLES, ALL_ROLES } from '@/lib/auth/rbac';
 
 interface NavItem {
   label: string;
@@ -35,24 +35,19 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-  { label: 'Properties', href: '/properties', icon: <Building2 className="w-4 h-4" /> },
-  { label: 'Units', href: '/units', icon: <DoorOpen className="w-4 h-4" /> },
-  { label: 'Tenants', href: '/tenants', icon: <Users className="w-4 h-4" /> },
-  { label: 'Payments', href: '/payments', icon: <Wallet className="w-4 h-4" /> },
-  { label: 'Invoices', href: '/invoices', icon: <FileText className="w-4 h-4" /> },
-  { label: 'Maintenance', href: '/maintenance', icon: <Wrench className="w-4 h-4" /> },
-  { label: 'Leases', href: '/leases', icon: <FileSignature className="w-4 h-4" /> },
-  { label: 'Reports', href: '/reports', icon: <BarChart3 className="w-4 h-4" /> },
-  { label: 'Documents', href: '/documents', icon: <FolderOpen className="w-4 h-4" /> },
-  { label: 'Messages', href: '/messages', icon: <MessageSquare className="w-4 h-4" /> },
-  { label: 'Notifications', href: '/notifications', icon: <Bell className="w-4 h-4" /> },
+  { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" />, roles: ALL_ROLES },
+  { label: 'Properties', href: '/properties', icon: <Building2 className="w-4 h-4" />, roles: MANAGEMENT_ROLES },
+  { label: 'Units', href: '/units', icon: <DoorOpen className="w-4 h-4" />, roles: OPERATIONS_ROLES },
+  { label: 'Tenants', href: '/tenants', icon: <Users className="w-4 h-4" />, roles: MANAGEMENT_ROLES },
+  { label: 'Payments', href: '/payments', icon: <Wallet className="w-4 h-4" />, roles: FINANCIAL_ROLES },
+  { label: 'Invoices', href: '/invoices', icon: <FileText className="w-4 h-4" />, roles: FINANCIAL_ROLES },
+  { label: 'Maintenance', href: '/maintenance', icon: <Wrench className="w-4 h-4" />, roles: ALL_ROLES },
+  { label: 'Leases', href: '/leases', icon: <FileSignature className="w-4 h-4" />, roles: MANAGEMENT_ROLES },
+  { label: 'Reports', href: '/reports', icon: <BarChart3 className="w-4 h-4" />, roles: MANAGEMENT_ROLES },
+  { label: 'Documents', href: '/documents', icon: <FolderOpen className="w-4 h-4" />, roles: FINANCIAL_ROLES },
+  { label: 'Messages', href: '/messages', icon: <MessageSquare className="w-4 h-4" />, roles: ALL_ROLES },
+  { label: 'Notifications', href: '/notifications', icon: <Bell className="w-4 h-4" />, roles: ALL_ROLES },
   { label: 'Admin', href: '/admin', icon: <Shield className="w-4 h-4" />, roles: [UserRole.SUPER_ADMIN] },
-];
-
-const PORTAL_ITEMS: NavItem[] = [
-  { label: 'My Dashboard', href: '/portal/tenant', icon: <Home className="w-4 h-4" />, roles: [UserRole.TENANT] },
-  { label: 'Caretaker Portal', href: '/portal/caretaker', icon: <Shield className="w-4 h-4" />, roles: [UserRole.CARETAKER] },
 ];
 
 interface SidebarProps {
@@ -102,35 +97,6 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 scrollbar-thin">
-        {/* Portal Items */}
-        {user && (user.role === UserRole.TENANT || user.role === UserRole.CARETAKER) && (
-          <div className="mb-2">
-            {!isCollapsed && (
-              <p className="px-3 mb-1.5 text-[10px] font-semibold text-[#646669] uppercase tracking-wider">Portal</p>
-            )}
-            {PORTAL_ITEMS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5 transition-all duration-200 group relative',
-                  isActive(item.href)
-                    ? 'bg-[#e2b714]/10 text-[#e2b714]'
-                    : 'text-[#646669] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4]'
-                )}
-                title={isCollapsed ? item.label : undefined}
-              >
-                <span className="flex-shrink-0">{item.icon}</span>
-                {!isCollapsed && <span className="text-xs font-medium">{item.label}</span>}
-                {isActive(item.href) && !isCollapsed && (
-                  <span className="absolute right-2 w-1 h-1 rounded-full bg-[#e2b714]" />
-                )}
-              </Link>
-            ))}
-            {!isCollapsed && <div className="border-t border-[#e2b714]/[0.06] my-2" />}
-          </div>
-        )}
-
         {/* Main Navigation */}
         {!isCollapsed && (
           <p className="px-3 mb-1.5 text-[10px] font-semibold text-[#646669] uppercase tracking-wider">Main Menu</p>

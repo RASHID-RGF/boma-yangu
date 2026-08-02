@@ -105,6 +105,9 @@ export const invoiceSchema = z.object({
   otherCharges: z.number().min(0).default(0),
   dueDate: z.string().min(1),
   notes: z.string().optional(),
-  tenantId: z.string().min(1),
-  unitId: z.string().min(1),
+  // Optional because a tenant sending an invoice has their tenant/unit derived
+  // from their account server-side; management may send tenantId without unitId
+  // (the unit is resolved from the tenant record).
+  tenantId: z.string().min(1).optional(),
+  unitId: z.string().min(1).optional(),
 });

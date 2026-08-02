@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { verifyToken, isPublicRoute } from '@/lib/auth';
+import { verifyToken } from '@/lib/auth';
+import { canAccessRoute, getRoleHome } from '@/lib/auth/rbac';
+import type { UserRole } from '@/types';
 
 const PUBLIC_ROUTES = ['/', '/login', '/register', '/forgot-password'];
-const API_PUBLIC_ROUTES = ['/api/auth/login', '/api/auth/register'];
+const API_PUBLIC_ROUTES = ['/api/auth/login', '/api/auth/register', '/api/payments/palpluss-callback'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -41,6 +43,14 @@ export async function middleware(request: NextRequest) {
       { success: false, error: 'Invalid token' },
       { status: 401 }
     );
+  }
+
+  // Role-based access control for page routes (APIs enforce their own guards)
+  if (!pathname.startsWith('/api')) {
+    const role = payload.role as UserRole;
+    if (!canAccessRoute(role, pathname)) {
+      return NextResponse.redirect(new URL(getRoleHome(role), request.url));
+    }
   }
 
   return NextResponse.next();
