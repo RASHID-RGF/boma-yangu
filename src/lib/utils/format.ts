@@ -27,6 +27,13 @@ export function formatDateTime(date: Date | string): string {
   }).format(d);
 }
 
+export function formatTime(date: Date | string): string {
+  return new Intl.DateTimeFormat('en-KE', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(date));
+}
+
 export function formatPhone(phone: string): string {
   // Format Kenyan phone numbers
   const cleaned = phone.replace(/\D/g, '');

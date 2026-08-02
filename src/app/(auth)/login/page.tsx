@@ -41,6 +41,7 @@ export default function LoginPage() {
       <form onSubmit={handleSubmit} className="space-y-5">
         <Input
           label="Email Address"
+          name="email"
           type="email"
           placeholder="you@example.com"
           value={email}
@@ -51,6 +52,7 @@ export default function LoginPage() {
         <div className="relative">
           <Input
             label="Password"
+            name="password"
             type={showPassword ? 'text' : 'password'}
             placeholder="Enter your password"
             value={password}
@@ -69,7 +71,7 @@ export default function LoginPage() {
 
         <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <input type="checkbox" name="remember" className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
             <span className="text-sm text-gray-600">Remember me</span>
           </label>            <Link href="/forgot-password" className="text-sm text-[#e2b714] hover:text-[#f5d742] font-medium">
               Forgot password?

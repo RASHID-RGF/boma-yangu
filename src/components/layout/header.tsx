@@ -5,6 +5,7 @@ import { Bell, Search, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { getInitials } from '@/lib/utils/format';
+import { useSettings } from '@/lib/settings/context';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -12,6 +13,7 @@ interface HeaderProps {
 
 export function Header({ onMenuToggle }: HeaderProps) {
   const { user, logout } = useAuth();
+  const { setIsOpen } = useSettings();
   const [showProfile, setShowProfile] = useState(false);
 
   return (
@@ -71,7 +73,16 @@ export function Header({ onMenuToggle }: HeaderProps) {
                   <p className="text-xs font-medium text-[#d4d4d4]">{user?.firstName} {user?.lastName}</p>
                   <p className="text-[10px] text-[#646669]">{user?.email}</p>
                 </div>
-                <a href="/settings" className="block px-4 py-1.5 text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4]">Settings</a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfile(false);
+                    setIsOpen(true);
+                  }}
+                  className="block w-full text-left px-4 py-1.5 text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4]"
+                >
+                  Settings
+                </button>
                 <a href="/profile" className="block px-4 py-1.5 text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4]">Profile</a>
                 <hr className="my-1 border-[#2a2a3e]" />
                 <button

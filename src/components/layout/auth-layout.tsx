@@ -2,6 +2,7 @@
 
 import { Home } from 'lucide-react';
 import Link from 'next/link';
+import { SettingsToggleButton, SettingsPanel } from '@/components/settings/settings-panel';
 
 interface AuthLayoutProps {
   children: React.ReactNode;
@@ -11,7 +12,7 @@ interface AuthLayoutProps {
 
 export function AuthLayout({ children, title, subtitle }: AuthLayoutProps) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0f0f1a] p-4 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0f0f1a] p-4 relative overflow-hidden" data-settings-root>
       {/* Grid Background */}
       <div
         className="fixed inset-0 pointer-events-none opacity-20"
@@ -53,6 +54,9 @@ export function AuthLayout({ children, title, subtitle }: AuthLayoutProps) {
           &copy; {new Date().getFullYear()} Boma Yangu. All rights reserved.
         </p>
       </div>
+
+      <SettingsToggleButton />
+      <SettingsPanel />
     </div>
   );
 }

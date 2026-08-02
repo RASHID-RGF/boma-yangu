@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
+import { SettingsToggleButton, SettingsPanel } from '@/components/settings/settings-panel';
 import { cn } from '@/lib/utils/cn';
 
 interface DashboardLayoutProps {
@@ -13,7 +14,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#0f0f1a]">
+    <div className="min-h-screen bg-[#0f0f1a]" data-settings-root>
       <Sidebar
         isCollapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -29,6 +30,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {children}
         </main>
       </div>
+      <SettingsToggleButton />
+      <SettingsPanel />
     </div>
   );
 }

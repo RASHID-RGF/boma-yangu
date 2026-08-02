@@ -42,7 +42,7 @@ function Badge({ className, variant, size, ...props }: BadgeProps) {
 export { Badge, badgeVariants };
 
 // Status mapping helpers
-export const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'default' | 'primary'> = {
+export const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'default' | 'primary' | 'purple'> = {
   ACTIVE: 'success',
   COMPLETED: 'success',
   PAID: 'success',

@@ -3,106 +3,31 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  SUPER_ADMIN
-  LANDLORD
-  MANAGER
-  CARETAKER
-  TENANT
-}
-
-enum PropertyType {
-  APARTMENT
-  BEDSITTER
-  SINGLE_ROOM
-  MAISONETTE
-  COMMERCIAL
-  VILLA
-  TOWNHOUSE
-}
-
-enum PropertyStatus {
-  OCCUPIED
-  VACANT
-  UNDER_MAINTENANCE
-}
-
-enum UnitStatus {
-  OCCUPIED
-  VACANT
-  UNDER_MAINTENANCE
-  RESERVED
-}
-
-enum PaymentStatus {
-  PENDING
-  COMPLETED
-  FAILED
-  REFUNDED
-  PARTIAL
-}
-
-enum PaymentMethod {
-  MPESA_STK_PUSH
-  MPESA_PAYBILL
-  MPESA_TILL_NUMBER
-  BANK_TRANSFER
-  CASH
-}
-
-enum InvoiceStatus {
-  DRAFT
-  SENT
-  PAID
-  OVERDUE
-  CANCELLED
-}
-
-enum MaintenanceStatus {
-  REPORTED
-  ASSIGNED
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
-}
-
-enum LeaseStatus {
-  ACTIVE
-  EXPIRED
-  TERMINATED
-  RENEWED
-}
-
-enum NotificationType {
-  RENT_DUE
-  PAYMENT_RECEIVED
-  MAINTENANCE_UPDATE
-  LEASE_EXPIRY
-  ANNOUNCEMENT
-  INVOICE_GENERATED
-}
-
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
+  @@map("users")
+
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  email         String   @unique
   phone         String?
   passwordHash  String
   firstName     String
   lastName      String
-  role          UserRole  @default(TENANT)
+  role          String   @default("TENANT")
   idNumber      String?
   kraPin        String?
-  isVerified    Boolean   @default(false)
+  isVerified    Boolean  @default(false)
   isTwoFactorEnabled Boolean @default(false)
   twoFactorSecret   String?
   avatarUrl     String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
+  loginRecords      LoginRecord[]
   ownedProperties   Property[]    @relation("PropertyOwner")
   managedProperties Property[]    @relation("PropertyManager")
   assignments       CaretakerAssignment[]
@@ -121,29 +46,31 @@ model User {
 }
 
 model Property {
-  id          String       @id @default(cuid())
+  @@map("properties")
+
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
   name        String
   description String?
-  type        PropertyType @default(APARTMENT)
-  status      PropertyStatus @default(VACANT)
+  type        String   @default("APARTMENT")
+  status      String   @default("VACANT")
   address     String
   city        String
   state       String?
-  country     String       @default("Kenya")
+  country     String   @default("Kenya")
   latitude    Float?
   longitude   Float?
-  totalUnits  Int          @default(0)
-  occupiedUnits Int        @default(0)
-  monthlyIncome Float      @default(0)
-  expenses    Float        @default(0)
+  totalUnits  Int      @default(0)
+  occupiedUnits Int    @default(0)
+  monthlyIncome Float  @default(0)
+  expenses    Float    @default(0)
   images      String[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  ownerId     String
-  owner       User         @relation("PropertyOwner", fields: [ownerId], references: [id])
-  managerId   String?
-  manager     User?        @relation("PropertyManager", fields: [managerId], references: [id])
+  ownerId     String   @db.ObjectId
+  owner       User     @relation("PropertyOwner", fields: [ownerId], references: [id])
+  managerId   String?  @db.ObjectId
+  manager     User?    @relation("PropertyManager", fields: [managerId], references: [id])
 
   units       Unit[]
   caretakerAssignments CaretakerAssignment[]
@@ -152,29 +79,31 @@ model Property {
 }
 
 model Unit {
-  id            String     @id @default(cuid())
+  @@map("units")
+
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
   unitNumber    String
   description   String?
   floorNumber   Int?
   monthlyRent   Float
-  depositAmount Float      @default(0)
-  utilityCharges Float     @default(0)
-  waterCharge   Float      @default(0)
-  electricityCharge Float  @default(0)
-  garbageCharge Float      @default(0)
-  serviceCharge Float      @default(0)
-  internetCharge Float     @default(0)
-  parkingCharge Float      @default(0)
-  status        UnitStatus @default(VACANT)
-  bedrooms      Int        @default(1)
-  bathrooms     Int        @default(1)
+  depositAmount Float    @default(0)
+  utilityCharges Float   @default(0)
+  waterCharge   Float    @default(0)
+  electricityCharge Float @default(0)
+  garbageCharge Float    @default(0)
+  serviceCharge Float    @default(0)
+  internetCharge Float   @default(0)
+  parkingCharge Float    @default(0)
+  status        String   @default("VACANT")
+  bedrooms      Int      @default(1)
+  bathrooms     Int      @default(1)
   size          Float?
   images        String[]
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  propertyId    String
-  property      Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId    String   @db.ObjectId
+  property      Property @relation(fields: [propertyId], references: [id])
 
   tenants       Tenant[]
   leases        Lease[]
@@ -184,7 +113,9 @@ model Unit {
 }
 
 model Tenant {
-  id            String    @id @default(cuid())
+  @@map("tenants")
+
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
   firstName     String
   lastName      String
   email         String?
@@ -200,9 +131,9 @@ model Tenant {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  unitId        String?
+  unitId        String?   @db.ObjectId
   unit          Unit?     @relation(fields: [unitId], references: [id])
-  userId        String?
+  userId        String?   @db.ObjectId
   user          User?     @relation(fields: [userId], references: [id])
 
   lease         Lease?
@@ -213,186 +144,204 @@ model Tenant {
 }
 
 model Lease {
-  id            String      @id @default(cuid())
+  @@map("leases")
+
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
   startDate     DateTime
   endDate       DateTime
   monthlyRent   Float
-  depositAmount Float       @default(0)
+  depositAmount Float    @default(0)
   terms         String?
-  status        LeaseStatus @default(ACTIVE)
+  status        String   @default("ACTIVE")
   isDigitalSignature Boolean @default(false)
   signedDocumentUrl String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  tenantId      String      @unique
-  tenant        Tenant      @relation(fields: [tenantId], references: [id])
-  unitId        String
-  unit          Unit        @relation(fields: [unitId], references: [id])
-  createdById   String
-  createdBy     User        @relation(fields: [createdById], references: [id])
+  tenantId      String   @unique @db.ObjectId
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  unitId        String   @db.ObjectId
+  unit          Unit     @relation(fields: [unitId], references: [id])
+  createdById   String   @db.ObjectId
+  createdBy     User     @relation(fields: [createdById], references: [id])
 
   documents     Document[]
 }
 
 model Payment {
-  id            String        @id @default(cuid())
+  @@map("payments")
+
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
   amount        Float
   description   String?
-  status        PaymentStatus @default(PENDING)
-  method        PaymentMethod
-  transactionCode String?     @unique
-  receiptNumber String?       @unique
-  paymentDate   DateTime      @default(now())
-  recordedAt    DateTime      @default(now())
-  isPartial     Boolean       @default(false)
+  status        String   @default("PENDING")
+  method        String
+  transactionCode String? @unique
+  receiptNumber String?  @unique
+  paymentDate   DateTime @default(now())
+  recordedAt    DateTime @default(now())
+  isPartial     Boolean  @default(false)
   balanceBefore Float?
   balanceAfter  Float?
   qrCodeUrl     String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  tenantId      String
-  tenant        Tenant        @relation(fields: [tenantId], references: [id])
-  unitId        String
-  unit          Unit          @relation(fields: [unitId], references: [id])
-  recordedById  String
-  recordedBy    User          @relation(fields: [recordedById], references: [id])
-  invoiceId     String?
-  invoice       Invoice?      @relation(fields: [invoiceId], references: [id])
+  tenantId      String   @db.ObjectId
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  unitId        String   @db.ObjectId
+  unit          Unit     @relation(fields: [unitId], references: [id])
+  recordedById  String   @db.ObjectId
+  recordedBy    User     @relation(fields: [recordedById], references: [id])
+  invoiceId     String?  @db.ObjectId
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id])
 }
 
 model Invoice {
-  id            String        @id @default(cuid())
-  invoiceNumber String        @unique
+  @@map("invoices")
+
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  invoiceNumber String   @unique
   month         Int
   year          Int
   rentAmount    Float
-  waterCharge   Float         @default(0)
-  electricityCharge Float     @default(0)
-  garbageCharge Float         @default(0)
-  serviceCharge Float         @default(0)
-  internetCharge Float        @default(0)
-  parkingCharge Float         @default(0)
-  otherCharges  Float         @default(0)
+  waterCharge   Float    @default(0)
+  electricityCharge Float @default(0)
+  garbageCharge Float    @default(0)
+  serviceCharge Float    @default(0)
+  internetCharge Float   @default(0)
+  parkingCharge Float    @default(0)
+  otherCharges  Float    @default(0)
   totalAmount   Float
-  amountPaid    Float         @default(0)
+  amountPaid    Float    @default(0)
   balance       Float
   dueDate       DateTime
-  status        InvoiceStatus @default(DRAFT)
+  status        String   @default("DRAFT")
   notes         String?
   pdfUrl        String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  tenantId      String
-  tenant        Tenant        @relation(fields: [tenantId], references: [id])
-  unitId        String
-  unit          Unit          @relation(fields: [unitId], references: [id])
-  createdById   String
-  createdBy     User          @relation(fields: [createdById], references: [id])
+  tenantId      String   @db.ObjectId
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  unitId        String   @db.ObjectId
+  unit          Unit     @relation(fields: [unitId], references: [id])
+  createdById   String   @db.ObjectId
+  createdBy     User     @relation(fields: [createdById], references: [id])
 
   payments      Payment[]
   documents     Document[]
 }
 
 model MaintenanceRequest {
-  id            String            @id @default(cuid())
+  @@map("maintenanceRequests")
+
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
   title         String
   description   String
-  priority      String            @default("MEDIUM")
-  status        MaintenanceStatus @default(REPORTED)
+  priority      String   @default("MEDIUM")
+  status        String   @default("REPORTED")
   images        String[]
   estimatedCost Float?
   actualCost    Float?
   scheduledDate DateTime?
   completedDate DateTime?
   notes         String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  tenantId      String
-  tenant        Tenant            @relation(fields: [tenantId], references: [id])
-  unitId        String
-  unit          Unit              @relation(fields: [unitId], references: [id])
-  reportedById  String
-  reportedBy    User              @relation("MaintenanceReporter", fields: [reportedById], references: [id])
-  assignedToId  String?
-  assignedTo    User?             @relation("MaintenanceAssignee", fields: [assignedToId], references: [id])
+  tenantId      String   @db.ObjectId
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  unitId        String   @db.ObjectId
+  unit          Unit     @relation(fields: [unitId], references: [id])
+  reportedById  String   @db.ObjectId
+  reportedBy    User     @relation("MaintenanceReporter", fields: [reportedById], references: [id])
+  assignedToId  String?  @db.ObjectId
+  assignedTo    User?    @relation("MaintenanceAssignee", fields: [assignedToId], references: [id])
 
   documents     Document[]
   activities    ActivityLog[]
 }
 
 model CaretakerAssignment {
-  id          String    @id @default(cuid())
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  @@map("caretakerAssignments")
 
-  caretakerId String
-  caretaker   User      @relation(fields: [caretakerId], references: [id])
-  propertyId  String
-  property    Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  caretakerId String   @db.ObjectId
+  caretaker   User     @relation(fields: [caretakerId], references: [id])
+  propertyId  String   @db.ObjectId
+  property    Property @relation(fields: [propertyId], references: [id])
 
   @@unique([caretakerId, propertyId])
 }
 
 model Notification {
-  id              String           @id @default(cuid())
-  type            NotificationType
+  @@map("notifications")
+
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  type            String
   title           String
   message         String
-  isRead          Boolean          @default(false)
+  isRead          Boolean  @default(false)
   readAt          DateTime?
-  sentViaEmail    Boolean          @default(false)
-  sentViaSms      Boolean          @default(false)
-  sentViaWhatsApp Boolean          @default(false)
-  createdAt       DateTime         @default(now())
+  sentViaEmail    Boolean  @default(false)
+  sentViaSms      Boolean  @default(false)
+  sentViaWhatsApp Boolean  @default(false)
+  createdAt       DateTime @default(now())
 
-  userId          String
-  user            User             @relation(fields: [userId], references: [id])
+  userId          String   @db.ObjectId
+  user            User     @relation(fields: [userId], references: [id])
 }
 
 model Document {
-  id          String    @id @default(cuid())
+  @@map("documents")
+
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
   name        String
   type        String
   url         String
   size        Int?
   mimeType    String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  uploadedById String
-  uploadedBy   User      @relation(fields: [uploadedById], references: [id])
-  propertyId  String?
+  uploadedById String  @db.ObjectId
+  uploadedBy   User    @relation(fields: [uploadedById], references: [id])
+  propertyId  String?  @db.ObjectId
   property    Property? @relation(fields: [propertyId], references: [id])
-  tenantId    String?
-  tenant      Tenant?   @relation(fields: [tenantId], references: [id])
-  leaseId     String?
-  lease       Lease?    @relation(fields: [leaseId], references: [id])
-  invoiceId   String?
-  invoice     Invoice?  @relation(fields: [invoiceId], references: [id])
-  maintenanceId String?
+  tenantId    String?  @db.ObjectId
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+  leaseId     String?  @db.ObjectId
+  lease       Lease?   @relation(fields: [leaseId], references: [id])
+  invoiceId   String?  @db.ObjectId
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id])
+  maintenanceId String? @db.ObjectId
   maintenance MaintenanceRequest? @relation(fields: [maintenanceId], references: [id])
 }
 
 model Message {
-  id        String    @id @default(cuid())
+  @@map("messages")
+
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
   subject   String
   content   String
-  isRead    Boolean   @default(false)
+  isRead    Boolean  @default(false)
   readAt    DateTime?
-  createdAt DateTime  @default(now())
+  createdAt DateTime @default(now())
 
-  senderId   String
-  sender     User     @relation("MessageSender", fields: [senderId], references: [id])
-  receiverId String
-  receiver   User     @relation("MessageReceiver", fields: [receiverId], references: [id])
+  senderId   String  @db.ObjectId
+  sender     User    @relation("MessageSender", fields: [senderId], references: [id])
+  receiverId String  @db.ObjectId
+  receiver   User    @relation("MessageReceiver", fields: [receiverId], references: [id])
 }
 
 model ActivityLog {
-  id          String    @id @default(cuid())
+  @@map("activityLogs")
+
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
   action      String
   description String?
   entityType  String
@@ -401,16 +350,18 @@ model ActivityLog {
   ipAddress   String?
   createdAt   DateTime  @default(now())
 
-  userId      String
+  userId      String    @db.ObjectId
   user        User      @relation(fields: [userId], references: [id])
-  propertyId  String?
+  propertyId  String?   @db.ObjectId
   property    Property? @relation(fields: [propertyId], references: [id])
-  maintenanceId String?
+  maintenanceId String? @db.ObjectId
   maintenance MaintenanceRequest? @relation(fields: [maintenanceId], references: [id])
 }
 
 model AuditLog {
-  id          String    @id @default(cuid())
+  @@map("auditLogs")
+
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
   action      String
   entityType  String
   entityId    String
@@ -418,23 +369,42 @@ model AuditLog {
   newValue    Json?
   ipAddress   String?
   userAgent   String?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
 
   userId      String
 }
 
 model Session {
-  id        String    @id @default(cuid())
-  token     String    @unique
-  expiresAt DateTime
-  createdAt DateTime  @default(now())
+  @@map("sessions")
 
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model LoginRecord {
+  @@map("loginRecords")
+
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  email     String
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model Backup {
-  id        String    @id @default(cuid())
+  @@map("backups")
+
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
   filename  String
   size      Int?
   status    String    @default("PENDING")

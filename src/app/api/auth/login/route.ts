@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { createToken, verifyPassword, setSessionCookie } from '@/lib/auth/jwt';
 import { loginSchema } from '@/lib/utils/validation';
+import type { UserRole } from '@/types';
 
 export async function POST(request: Request) {
   try {
@@ -31,21 +32,46 @@ export async function POST(request: Request) {
     const token = await createToken({
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role as UserRole,
     });
 
     setSessionCookie(token);
 
-    // Log activity
-    await prisma.activityLog.create({
-      data: {
-        action: 'LOGIN',
-        description: 'User logged in',
-        entityType: 'USER',
-        entityId: user.id,
-        userId: user.id,
-      },
-    });
+    // Reflect the login in MongoDB: update lastLoginAt and log a LoginRecord.
+    // Best-effort: never let telemetry failure turn a successful login into an error.
+    try {
+      const ipAddress =
+        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        request.headers.get('x-real-ip') ||
+        null;
+      const userAgent = request.headers.get('user-agent') || null;
+
+      await Promise.all([
+        prisma.user.update({
+          where: { id: user.id },
+          data: { lastLoginAt: new Date() },
+        }),
+        prisma.loginRecord.create({
+          data: {
+            userId: user.id,
+            email: user.email,
+            ipAddress,
+            userAgent,
+          },
+        }),
+        prisma.activityLog.create({
+          data: {
+            action: 'LOGIN',
+            description: 'User logged in',
+            entityType: 'USER',
+            entityId: user.id,
+            userId: user.id,
+          },
+        }),
+      ]);
+    } catch (recordError) {
+      console.error('Failed to record login:', recordError);
+    }
 
     return NextResponse.json({
       success: true,

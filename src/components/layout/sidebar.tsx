@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Home,
 } from 'lucide-react';
+import { useSettings } from '@/lib/settings/context';
 
 interface NavItem {
   label: string;
@@ -62,6 +63,7 @@ interface SidebarProps {
 export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { setIsOpen } = useSettings();
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard';
@@ -161,6 +163,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       {/* Bottom actions */}
       <div className="border-t border-[#e2b714]/[0.06] p-3 space-y-1">
         <button
+          onClick={() => setIsOpen(true)}
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-[#646669] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200 w-full text-xs"
         >
           <Settings className="w-4 h-4 flex-shrink-0" />

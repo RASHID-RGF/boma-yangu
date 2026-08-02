@@ -62,6 +62,7 @@ export default function RegisterPage() {
         <div className="grid grid-cols-2 gap-4">
           <Input
             label="First Name"
+            name="firstName"
             placeholder="John"
             value={form.firstName}
             onChange={(e) => handleChange('firstName', e.target.value)}
@@ -70,6 +71,7 @@ export default function RegisterPage() {
           />
           <Input
             label="Last Name"
+            name="lastName"
             placeholder="Doe"
             value={form.lastName}
             onChange={(e) => handleChange('lastName', e.target.value)}
@@ -79,6 +81,7 @@ export default function RegisterPage() {
 
         <Input
           label="Email Address"
+          name="email"
           type="email"
           placeholder="you@example.com"
           value={form.email}
@@ -89,6 +92,7 @@ export default function RegisterPage() {
 
         <Input
           label="Phone Number"
+          name="phone"
           type="tel"
           placeholder="0712 345 678"
           value={form.phone}
@@ -99,6 +103,7 @@ export default function RegisterPage() {
 
         <Select
           label="I am a"
+          name="role"
           options={ROLE_OPTIONS}
           value={form.role}
           onChange={(e) => handleChange('role', e.target.value)}
@@ -108,6 +113,7 @@ export default function RegisterPage() {
         <div className="relative">
           <Input
             label="Password"
+            name="password"
             type={showPassword ? 'text' : 'password'}
             placeholder="At least 6 characters"
             value={form.password}
@@ -126,6 +132,7 @@ export default function RegisterPage() {
 
         <Input
           label="Confirm Password"
+          name="confirmPassword"
           type="password"
           placeholder="Repeat your password"
           value={form.confirmPassword}

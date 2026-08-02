@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { hashPassword, createToken, setSessionCookie } from '@/lib/auth/jwt';
 import { registerSchema } from '@/lib/utils/validation';
+import type { UserRole } from '@/types';
 
 export async function POST(request: Request) {
   try {
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
         firstName: validated.firstName,
         lastName: validated.lastName,
         passwordHash,
-        role: validated.role as any,
+        role: validated.role as string,
       },
     });
 
@@ -37,10 +38,37 @@ export async function POST(request: Request) {
     const token = await createToken({
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role as UserRole,
     });
 
     setSessionCookie(token);
+
+    // Reflect the registration login in MongoDB. Best-effort: never let a
+    // telemetry failure turn a successful registration into an error.
+    try {
+      const ipAddress =
+        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        request.headers.get('x-real-ip') ||
+        null;
+      const userAgent = request.headers.get('user-agent') || null;
+
+      await Promise.all([
+        prisma.user.update({
+          where: { id: user.id },
+          data: { lastLoginAt: new Date() },
+        }),
+        prisma.loginRecord.create({
+          data: {
+            userId: user.id,
+            email: user.email,
+            ipAddress,
+            userAgent,
+          },
+        }),
+      ]);
+    } catch (recordError) {
+      console.error('Failed to record registration login:', recordError);
+    }
 
     return NextResponse.json({
       success: true,
