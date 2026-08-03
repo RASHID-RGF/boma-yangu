@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
-import { getTenantRecord } from '@/lib/auth/tenant-scope';
+import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { invoiceSchema } from '@/lib/utils/validation';
 import { generateInvoiceNumber } from '@/lib/utils/format';
@@ -13,7 +13,9 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const tenantRecord = !isManagementRole(session.role) ? await getTenantRecord(session.userId) : null;
+    // Self-registered tenant accounts get their Tenant profile auto-created so
+    // they are never stuck with a "no linked tenant" dead end.
+    const tenantRecord = !isManagementRole(session.role) ? await ensureTenantRecord(session.userId) : null;
 
     // A tenant account without a linked Tenant record must never see estate-wide data.
     if (!isManagementRole(session.role) && !tenantRecord) {
@@ -69,7 +71,7 @@ export async function POST(request: Request) {
     let tenantRecord = null;
 
     if (!isManagementRole(session.role)) {
-      tenantRecord = await getTenantRecord(session.userId);
+      tenantRecord = await ensureTenantRecord(session.userId);
       if (!tenantRecord) {
         return NextResponse.json(
           { success: false, error: 'No tenant profile linked to this account.' },

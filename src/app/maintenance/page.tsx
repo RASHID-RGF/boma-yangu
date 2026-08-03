@@ -12,7 +12,7 @@ import { Modal } from '@/components/ui/modal';
 import { formatDate } from '@/lib/utils/format';
 import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
-import { Wrench, Plus, RefreshCw, Inbox, AlertTriangle } from 'lucide-react';
+import { Wrench, Plus, RefreshCw, Inbox, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 interface MaintenanceRow {
   id: string;
@@ -39,6 +39,14 @@ const PRIORITY_OPTIONS = [
   { value: 'URGENT', label: 'Urgent' },
 ];
 
+const STATUS_OPTIONS = [
+  { value: 'REPORTED', label: 'Reported' },
+  { value: 'ASSIGNED', label: 'Assigned' },
+  { value: 'IN_PROGRESS', label: 'In Progress' },
+  { value: 'COMPLETED', label: 'Completed' },
+  { value: 'CANCELLED', label: 'Cancelled' },
+];
+
 export default function MaintenancePage() {
   const { user } = useAuth();
   const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
@@ -52,6 +60,10 @@ export default function MaintenancePage() {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'MEDIUM' });
 
+  // Management status updates: per-request draft status + busy state.
+  const [statusDrafts, setStatusDrafts] = useState<Record<string, string>>({});
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
   const fetchRequests = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -61,6 +73,8 @@ export default function MaintenancePage() {
       if (!res.ok || !result.success) throw new Error(result.error || 'Failed to load requests');
       setRequests(result.data);
       setStats(result.stats);
+      // Seed the status draft for each request so the dropdown matches reality.
+      setStatusDrafts(Object.fromEntries(result.data.map((r: MaintenanceRow) => [r.id, r.status])));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load requests');
     } finally {
@@ -91,6 +105,26 @@ export default function MaintenancePage() {
       toast.error(err instanceof Error ? err.message : 'Failed to submit request');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Management: update the status of a request.
+  const handleStatusUpdate = async (id: string) => {
+    setUpdatingId(id);
+    try {
+      const res = await fetch(`/api/maintenance/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: statusDrafts[id] }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.error || 'Failed to update status');
+      toast.success(`Status updated to ${statusDrafts[id].replace(/_/g, ' ')}`);
+      await fetchRequests();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update status');
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -210,9 +244,38 @@ export default function MaintenancePage() {
                         </div>
                       </div>
                     </div>
-                    <Badge variant={STATUS_VARIANTS[request.status] || 'default'}>
-                      {request.status.replace(/_/g, ' ')}
-                    </Badge>
+                    <div className="flex flex-col items-end gap-2">
+                      <Badge variant={STATUS_VARIANTS[request.status] || 'default'}>
+                        {request.status.replace(/_/g, ' ')}
+                      </Badge>
+                      {isManagement && (
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-36">
+                            <Select
+                              name={`status-${request.id}`}
+                              aria-label="Update status"
+                              className="h-8 text-xs"
+                              options={STATUS_OPTIONS}
+                              value={statusDrafts[request.id] ?? request.status}
+                              onChange={(e) =>
+                                setStatusDrafts((d) => ({ ...d, [request.id]: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 flex-shrink-0"
+                            disabled={updatingId === request.id}
+                            loading={updatingId === request.id}
+                            onClick={() => handleStatusUpdate(request.id)}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Update
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>

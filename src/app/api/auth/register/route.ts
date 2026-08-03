@@ -34,6 +34,26 @@ export async function POST(request: Request) {
       },
     });
 
+    // Auto-link a Tenant profile for self-registered tenants so the tenant
+    // sections (payments, invoices, maintenance, documents) work immediately.
+    // Best-effort: never let a profile-creation failure block registration.
+    if (user.role === 'TENANT') {
+      try {
+        await prisma.tenant.create({
+          data: {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone || '',
+            isActive: true,
+            userId: user.id,
+          },
+        });
+      } catch (tenantError) {
+        console.error('Failed to create linked tenant profile:', tenantError);
+      }
+    }
+
     // Create session
     const token = await createToken({
       id: user.id,

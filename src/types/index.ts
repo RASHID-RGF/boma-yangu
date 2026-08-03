@@ -208,12 +208,12 @@ export interface Payment {
   qrCodeUrl?: string | null;
   tenantId: string;
   tenant?: Tenant;
-  unitId: string;
-  unit?: Unit;
+  unitId?: string | null;
+  unit?: Unit | null;
   recordedById: string;
   recordedBy?: User;
   invoiceId?: string | null;
-  invoice?: Invoice;
+  invoice?: Invoice | null;
   createdAt: Date;
   updatedAt: Date;
 }

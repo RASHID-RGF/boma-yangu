@@ -176,8 +176,8 @@ model Payment {
   description   String?
   status        String   @default("PENDING")
   method        String
-  transactionCode String? @unique
-  receiptNumber String?  @unique
+  transactionCode String?
+  receiptNumber String?
   checkoutRequestId String?
   phoneNumber   String?
   paymentDate   DateTime @default(now())
@@ -191,8 +191,8 @@ model Payment {
 
   tenantId      String   @db.ObjectId
   tenant        Tenant   @relation(fields: [tenantId], references: [id])
-  unitId        String   @db.ObjectId
-  unit          Unit     @relation(fields: [unitId], references: [id])
+  unitId        String?  @db.ObjectId
+  unit          Unit?    @relation(fields: [unitId], references: [id])
   recordedById  String   @db.ObjectId
   recordedBy    User     @relation(fields: [recordedById], references: [id])
   invoiceId     String?  @db.ObjectId
