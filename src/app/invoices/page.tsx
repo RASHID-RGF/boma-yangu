@@ -42,6 +42,15 @@ interface TenantOption {
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Hosted PalPluss checkout (NEXT_PUBLIC so it's available in the browser).
+const PAY_LINK_URL = process.env.NEXT_PUBLIC_PALPLUSS_PAY_LINK_URL;
+
+/** Opens the hosted PalPluss checkout with the invoice balance prefilled. */
+function openPayLink(balance: number) {
+  const url = `${PAY_LINK_URL}?amount=${Math.round(balance)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 const EMPTY_NEW_INVOICE = {
   tenantId: '',
   month: new Date().getMonth() + 1,
@@ -138,6 +147,35 @@ export default function InvoicesPage() {
       } else {
         toast.success(result.data.message || 'Payment successful');
       }
+      setPayInvoice(null);
+      setPayPhone('');
+      await fetchInvoices();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Payment failed');
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  // Hosted-link path: create the PENDING payment record first (so the PalPluss
+  // webhook can match it), then open the checkout page in a new tab.
+  const handlePayViaLink = async () => {
+    if (!payInvoice || !PAY_LINK_URL) return;
+    setPaying(true);
+    try {
+      const res = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceId: payInvoice.id,
+          phoneNumber: payPhone || undefined,
+          payViaLink: true,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.error || 'Payment failed');
+      toast.success(result.data.message || 'Opening secure payment link...');
+      openPayLink(payInvoice.balance);
       setPayInvoice(null);
       setPayPhone('');
       await fetchInvoices();
@@ -367,13 +405,26 @@ export default function InvoicesPage() {
             required
           />
           <p className="text-xs text-[#646669]">
-            An M-Pesa STK push will be sent to this number. In demo mode (no PalPluss API key) the
-            payment is recorded instantly with a simulated transaction code.
+            An M-Pesa STK push will be sent to this number. If you use the payment link, make sure
+            you enter this same M-Pesa number at checkout so your payment is matched. In demo mode
+            (no PalPluss API key) the payment is recorded instantly with a simulated transaction code.
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setPayInvoice(null)}>
               Cancel
             </Button>
+            {PAY_LINK_URL && (
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1.5"
+                onClick={handlePayViaLink}
+                loading={paying}
+              >
+                <CreditCard className="w-4 h-4" />
+                Pay via Link
+              </Button>
+            )}
             <Button type="submit" loading={paying}>
               <Send className="w-4 h-4 mr-2" />
               Pay Now

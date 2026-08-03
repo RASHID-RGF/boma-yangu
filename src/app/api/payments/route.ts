@@ -12,6 +12,9 @@ const payInvoiceSchema = z.object({
   amount: z.number().positive('Amount must be positive').optional(),
   phoneNumber: z.string().optional(),
   method: z.string().optional(),
+  // Hosted-link payments: create the PENDING record now; the PalPluss webhook
+  // finalizes it when the tenant completes the hosted checkout.
+  payViaLink: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -124,6 +127,37 @@ export async function POST(request: Request) {
         recordedById: session.userId,
       },
     });
+
+    // Hosted-link path: create the PENDING record and return immediately — the
+    // tenant completes payment on the PalPluss checkout page and the webhook
+    // finalizes the record (matched by phone + amount). Cancel any earlier
+    // PENDING link records for the same invoice (checkoutRequestId is null only
+    // for link-created records, so an in-flight STK push is never cancelled)
+    // so the webhook's unique-match fallback can never see an ambiguous
+    // phone+amount pair.
+    if (isTenant && validated.payViaLink) {
+      await prisma.payment.updateMany({
+        where: {
+          id: { not: payment.id },
+          tenantId: payment.tenantId,
+          invoiceId: payment.invoiceId,
+          status: 'PENDING',
+          checkoutRequestId: null,
+        },
+        data: { status: 'CANCELLED' },
+      });
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            paymentId: payment.id,
+            status: 'PENDING',
+            message: 'Complete your payment on the secure payment link.',
+          },
+        },
+        { status: 201 }
+      );
+    }
 
     // M-Pesa path: push an STK prompt to the tenant's phone. Tenants always go
     // through PalPluss (which sends an M-Pesa STK prompt) — they can never

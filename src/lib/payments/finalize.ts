@@ -18,6 +18,13 @@ interface FinalizeOptions {
   checkoutRequestId?: string | null;
   /** Optional phone number used for the STK push. */
   phoneNumber?: string | null;
+  /**
+   * Actual amount paid, from the webhook. Used for hosted-link payments where
+   * the tenant can edit the amount at checkout; defaults to the recorded
+   * payment amount. Capped at the invoice balance so a payment can never
+   * inflate amountPaid past totalAmount.
+   */
+  amount?: number | null;
 }
 
 /**
@@ -40,7 +47,11 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
   if (payment.status === 'COMPLETED') return payment;
 
   const invoice = payment.invoice;
-  const amount = payment.amount;
+  // Actual paid amount (may differ from the record for hosted-link payments).
+  const amount =
+    options.amount != null
+      ? Math.min(options.amount, invoice ? invoice.balance : options.amount)
+      : payment.amount;
   const newPaid = (invoice?.amountPaid || 0) + amount;
   const newBalance = invoice ? Math.max(0, invoice.totalAmount - newPaid) : 0;
   const isPartial = invoice ? newBalance > 0 : false;
@@ -57,6 +68,7 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
       where: { id: payment.id },
       data: {
         status: 'COMPLETED',
+        amount,
         transactionCode: options.transactionCode,
         receiptNumber,
         checkoutRequestId: options.checkoutRequestId ?? payment.checkoutRequestId,
