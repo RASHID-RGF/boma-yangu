@@ -3,7 +3,8 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
-import { stkPush, PalPlussApiError } from '@/lib/payments/palpluss';
+import { stkPush as palplussStkPush, PalPlussApiError } from '@/lib/payments/palpluss';
+import { stkPush as darajaStkPush, isDarajaConfigured } from '@/lib/payments/daraja';
 import { finalizePayment, isPalplussConfigured, simulateTransactionCode } from '@/lib/payments/finalize';
 import { z } from 'zod';
 
@@ -249,8 +250,8 @@ export async function POST(request: Request) {
     }
 
     // M-Pesa path: push an STK prompt to the tenant's phone. Tenants always go
-    // through PalPluss (which sends an M-Pesa STK prompt) — they can never
-    // self-confirm a payment by passing a method.
+    // through the configured M-Pesa provider (Daraja first, then PalPluss) —
+    // they can never self-confirm a payment by passing a method.
     if (isTenant) {
       const phone = phoneNumber || '';
       if (!phone) {
@@ -264,9 +265,41 @@ export async function POST(request: Request) {
         : unitId
           ? `RENT-${unitId.slice(-5).toUpperCase()}`
           : 'RENT';
+
+      if (isDarajaConfigured()) {
+        try {
+          const stk = await darajaStkPush(phone, amount, accountReference, 'Rent payment');
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { checkoutRequestId: stk.transactionId },
+          });
+          return NextResponse.json(
+            {
+              success: true,
+              data: {
+                paymentId: payment.id,
+                status: 'PENDING',
+                message: 'Payment prompt sent. Enter your PIN to complete the payment.',
+              },
+            },
+            { status: 201 }
+          );
+        } catch (stkError) {
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { status: 'FAILED' },
+          });
+          console.error('Daraja STK push error:', stkError);
+          return NextResponse.json(
+            { success: false, error: 'Could not reach the Daraja payment provider. Please try again.' },
+            { status: 502 }
+          );
+        }
+      }
+
       if (isPalplussConfigured()) {
         try {
-          const stk = await stkPush(phone, amount, accountReference, 'Rent payment');
+          const stk = await palplussStkPush(phone, amount, accountReference, 'Rent payment');
           await prisma.payment.update({
             where: { id: payment.id },
             data: { checkoutRequestId: stk.transactionId },
@@ -302,8 +335,8 @@ export async function POST(request: Request) {
         }
       }
 
-      // Simulation mode (no PalPluss API key): confirm immediately with a
-      // simulated transaction code so the full flow works end to end.
+      // Simulation mode (no live provider configured): confirm immediately with
+      // a simulated transaction code so the full flow works end to end.
       const completed = await finalizePayment(payment.id, {
         transactionCode: simulateTransactionCode(),
         phoneNumber: phone,
@@ -316,7 +349,7 @@ export async function POST(request: Request) {
             status: 'COMPLETED',
             transactionCode: completed.transactionCode,
             receiptNumber: completed.receiptNumber,
-            message: 'Payment recorded (simulated PalPluss). Receipt generated.',
+            message: 'Payment recorded (simulated provider). Receipt generated.',
           },
         },
         { status: 201 }

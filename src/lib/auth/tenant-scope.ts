@@ -19,6 +19,13 @@ export async function getTenantRecord(userId: string) {
  * user's profile if none exists yet. This "self-heals" accounts registered via
  * the public sign-up form, which previously had no linked Tenant record and
  * were blocked from paying / using the tenant sections.
+ *
+ * NOTE: findFirst-then-create has a small race window (two concurrent requests
+ * could both create a record). There is deliberately NO unique index on
+ * Tenant.userId: it is nullable, and a MongoDB unique index would reject
+ * multiple documents with null userId (the same null-collision bug that was
+ * fixed on Payment.transactionCode). The window is tiny and self-correcting in
+ * practice — do not "fix" it by adding @unique.
  */
 export async function ensureTenantRecord(userId: string) {
   const existing = await getTenantRecord(userId);

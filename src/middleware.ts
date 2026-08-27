@@ -5,7 +5,12 @@ import { canAccessRoute, getRoleHome } from '@/lib/auth/rbac';
 import type { UserRole } from '@/types';
 
 const PUBLIC_ROUTES = ['/', '/login', '/register', '/forgot-password'];
-const API_PUBLIC_ROUTES = ['/api/auth/login', '/api/auth/register', '/api/payments/palpluss-callback'];
+const API_PUBLIC_ROUTES = [
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/payments/palpluss-callback',
+  '/api/payments/daraja-callback',
+];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

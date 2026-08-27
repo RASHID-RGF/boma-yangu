@@ -15,7 +15,20 @@ export async function GET() {
       const tenants = await prisma.tenant.findMany({
         orderBy: { createdAt: 'desc' },
         include: {
-          unit: { include: { property: { select: { name: true } } } },
+          // The tenant's unit, its property, and the property owner — that
+          // owner is the tenant's landlord (they receive the rent payments).
+          unit: {
+            include: {
+              property: {
+                select: {
+                  id: true,
+                  name: true,
+                  ownerId: true,
+                  owner: { select: { firstName: true, lastName: true, email: true } },
+                },
+              },
+            },
+          },
           user: { select: { id: true, email: true } },
         },
       });
@@ -30,7 +43,18 @@ export async function GET() {
     const tenants = await prisma.tenant.findMany({
       where: { id: tenantRecord.id },
       include: {
-        unit: { include: { property: { select: { name: true } } } },
+        unit: {
+          include: {
+            property: {
+              select: {
+                id: true,
+                name: true,
+                ownerId: true,
+                owner: { select: { firstName: true, lastName: true, email: true } },
+              },
+            },
+          },
+        },
         user: { select: { id: true, email: true } },
       },
     });

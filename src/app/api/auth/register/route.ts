@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { hashPassword, createToken, setSessionCookie } from '@/lib/auth/jwt';
+import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { registerSchema } from '@/lib/utils/validation';
 import type { UserRole } from '@/types';
 
@@ -36,19 +37,12 @@ export async function POST(request: Request) {
 
     // Auto-link a Tenant profile for self-registered tenants so the tenant
     // sections (payments, invoices, maintenance, documents) work immediately.
+    // ensureTenantRecord only creates when none exists — a profile that
+    // management pre-created (and linked to this user) is never duplicated.
     // Best-effort: never let a profile-creation failure block registration.
     if (user.role === 'TENANT') {
       try {
-        await prisma.tenant.create({
-          data: {
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            phone: user.phone || '',
-            isActive: true,
-            userId: user.id,
-          },
-        });
+        await ensureTenantRecord(user.id);
       } catch (tenantError) {
         console.error('Failed to create linked tenant profile:', tenantError);
       }
