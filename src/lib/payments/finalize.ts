@@ -39,7 +39,7 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
     include: {
       invoice: true,
       tenant: { include: { user: true, unit: { include: { property: true } } } },
-      unit: true,
+      unit: { include: { property: true } },
     },
   });
 
@@ -142,6 +142,41 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
           content: transactionMessage,
         },
       });
+    }
+
+    // Activity feed entry so every payment is reflected in the estate log
+    // (dashboard activity, admin views) with the property it belongs to.
+    await tx.activityLog.create({
+      data: {
+        action: 'PAYMENT_RECORDED',
+        description: transactionMessage,
+        entityType: 'PAYMENT',
+        entityId: payment.id,
+        userId: payment.recordedById,
+        propertyId: payment.unit?.propertyId ?? payment.tenant?.unit?.propertyId ?? null,
+      },
+    });
+
+    // Notify assigned caretakers (monitor-only): they watch collections for
+    // their properties but are not party to the tenant/landlord messages.
+    const propertyId = payment.unit?.propertyId ?? payment.tenant?.unit?.propertyId ?? null;
+    if (propertyId) {
+      const caretakers = await tx.caretakerAssignment.findMany({
+        where: { propertyId },
+        select: { caretakerId: true },
+      });
+      for (const { caretakerId } of caretakers) {
+        if (caretakerId !== payment.tenant?.userId && caretakerId !== payment.recordedById) {
+          await tx.notification.create({
+            data: {
+              userId: caretakerId,
+              type: 'PAYMENT_RECEIVED',
+              title: `Payment at ${payment.unit?.property?.name || 'your property'}`,
+              message: transactionMessage,
+            },
+          });
+        }
+      }
     }
 
     return paid;

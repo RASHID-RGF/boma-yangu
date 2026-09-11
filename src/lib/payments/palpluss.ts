@@ -1,12 +1,21 @@
 import { PalPluss, PalPlussApiError, RateLimitError } from '@palpluss/sdk';
 
-// Shared client singleton so the HTTP connection pool is reused across requests.
-export const palpluss = new PalPluss({
-  apiKey: process.env.PALPLUSS_API_KEY,
-  timeout: 30_000,
-  autoRetryOnRateLimit: true,
-  maxRetries: 3,
-});
+// Lazily-created shared client: the SDK throws at construction when the API
+// key is missing, which previously crashed the whole /api/payments route at
+// import time. Building it on first use keeps simulation mode (no key) alive.
+let _palpluss: PalPluss | undefined;
+
+export function getPalpluss(): PalPluss {
+  if (!_palpluss) {
+    _palpluss = new PalPluss({
+      apiKey: process.env.PALPLUSS_API_KEY,
+      timeout: 30_000,
+      autoRetryOnRateLimit: true,
+      maxRetries: 3,
+    });
+  }
+  return _palpluss;
+}
 
 export { PalPlussApiError, RateLimitError };
 
@@ -40,7 +49,7 @@ export async function stkPush(
   accountReference: string,
   transactionDesc: string
 ): Promise<StkPushResult> {
-  const tx = await palpluss.stkPush({
+  const tx = await getPalpluss().stkPush({
     amount: Math.round(amount),
     phone: formatPhoneNumber(phoneNumber),
     accountReference,
@@ -54,7 +63,7 @@ export async function stkPush(
 
 /** Fetches a single transaction by PalPluss transaction id (for polling). */
 export async function queryStatus(transactionId: string) {
-  return palpluss.getTransaction(transactionId);
+  return getPalpluss().getTransaction(transactionId);
 }
 
 // NOTE: queryStatus and b2cPayment are kept for API parity with the previous
@@ -68,7 +77,7 @@ export async function b2cPayment(
   reference: string,
   description?: string
 ) {
-  return palpluss.b2cPayout(
+  return getPalpluss().b2cPayout(
     {
       amount: Math.round(amount),
       phone: formatPhoneNumber(phoneNumber),

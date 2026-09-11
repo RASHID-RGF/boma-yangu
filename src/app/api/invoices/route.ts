@@ -13,12 +13,12 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Self-registered tenant accounts get their Tenant profile auto-created so
-    // they are never stuck with a "no linked tenant" dead end.
-    const tenantRecord = !isManagementRole(session.role) ? await ensureTenantRecord(session.userId) : null;
+    // TENANT sees only their own invoices; management sees everything;
+    // CARETAKER sees invoices for the properties they are assigned to.
+    const tenantRecord = session.role === 'TENANT' ? await ensureTenantRecord(session.userId) : null;
 
     // A tenant account without a linked Tenant record must never see estate-wide data.
-    if (!isManagementRole(session.role) && !tenantRecord) {
+    if (session.role === 'TENANT' && !tenantRecord) {
       return NextResponse.json({
         success: true,
         data: [],
@@ -26,8 +26,22 @@ export async function GET() {
       });
     }
 
+    // Caretakers: resolve assigned property ids for monitor-only scoping.
+    let caretakerPropertyIds: string[] | null = null;
+    if (session.role === 'CARETAKER') {
+      const assignments = await prisma.caretakerAssignment.findMany({
+        where: { caretakerId: session.userId },
+        select: { propertyId: true },
+      });
+      caretakerPropertyIds = assignments.map((a) => a.propertyId);
+    }
+
     const invoices = await prisma.invoice.findMany({
-      where: tenantRecord ? { tenantId: tenantRecord.id } : {},
+      where: tenantRecord
+        ? { tenantId: tenantRecord.id }
+        : caretakerPropertyIds
+          ? { unit: { propertyId: { in: caretakerPropertyIds } } }
+          : {},
       orderBy: { dueDate: 'desc' },
       include: {
         tenant: { select: { firstName: true, lastName: true } },

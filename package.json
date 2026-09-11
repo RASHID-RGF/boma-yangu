@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "db:generate": "prisma generate",
+    "db:start": "bash scripts/start-db.sh",
     "db:push": "prisma db push",
     "db:migrate": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",

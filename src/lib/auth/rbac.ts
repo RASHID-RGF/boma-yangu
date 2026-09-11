@@ -22,6 +22,15 @@ export const FINANCIAL_ROLES: UserRole[] = [
   UserRole.TENANT,
 ];
 
+/**
+ * Monitor-only money access: caretakers can watch payments and invoices for
+ * the properties they are assigned to, but can never record or edit money.
+ */
+export const MONITORING_ROLES: UserRole[] = [
+  ...MANAGEMENT_ROLES,
+  UserRole.CARETAKER,
+];
+
 export const ALL_ROLES: UserRole[] = Object.values(UserRole);
 
 // ============ ROUTE ACCESS RULES ============
@@ -38,8 +47,8 @@ export const ROUTE_ACCESS: RouteRule[] = [
   { prefix: '/properties', roles: MANAGEMENT_ROLES },
   { prefix: '/units', roles: OPERATIONS_ROLES },
   { prefix: '/tenants', roles: MANAGEMENT_ROLES },
-  { prefix: '/payments', roles: FINANCIAL_ROLES },
-  { prefix: '/invoices', roles: FINANCIAL_ROLES },
+  { prefix: '/payments', roles: [...FINANCIAL_ROLES, UserRole.CARETAKER] },
+  { prefix: '/invoices', roles: [...FINANCIAL_ROLES, UserRole.CARETAKER] },
   { prefix: '/maintenance', roles: ALL_ROLES },
   { prefix: '/leases', roles: MANAGEMENT_ROLES },
   { prefix: '/reports', roles: MANAGEMENT_ROLES },

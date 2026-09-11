@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
+
 import { stkPush as palplussStkPush, PalPlussApiError } from '@/lib/payments/palpluss';
 import { stkPush as darajaStkPush, isDarajaConfigured } from '@/lib/payments/daraja';
 import { finalizePayment, isPalplussConfigured, simulateTransactionCode } from '@/lib/payments/finalize';
@@ -38,13 +39,14 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // TENANT sees only their own payments; management roles see everything.
+    // TENANT sees only their own payments; management sees everything;
+    // CARETAKER sees payments for the properties they are assigned to.
     // Self-registered tenant accounts get a Tenant profile auto-created here so
     // they are never stuck with a dead-end "no linked tenant" error.
-    const tenantRecord = !isManagementRole(session.role) ? await ensureTenantRecord(session.userId) : null;
+    const tenantRecord = session.role === 'TENANT' ? await ensureTenantRecord(session.userId) : null;
 
     // A tenant account without a linked Tenant record must never see estate-wide data.
-    if (!isManagementRole(session.role) && !tenantRecord) {
+    if (session.role === 'TENANT' && !tenantRecord) {
       return NextResponse.json({
         success: true,
         data: [],
@@ -52,8 +54,23 @@ export async function GET() {
       });
     }
 
+    // Caretakers: resolve the property ids they are assigned to so they can
+    // monitor collections without seeing the whole estate.
+    let caretakerPropertyIds: string[] | null = null;
+    if (session.role === 'CARETAKER') {
+      const assignments = await prisma.caretakerAssignment.findMany({
+        where: { caretakerId: session.userId },
+        select: { propertyId: true },
+      });
+      caretakerPropertyIds = assignments.map((a) => a.propertyId);
+    }
+
     const payments = await prisma.payment.findMany({
-      where: tenantRecord ? { tenantId: tenantRecord.id } : {},
+      where: tenantRecord
+        ? { tenantId: tenantRecord.id }
+        : caretakerPropertyIds
+          ? { unit: { propertyId: { in: caretakerPropertyIds } } }
+          : {},
       orderBy: { paymentDate: 'desc' },
       include: {
         tenant: { select: { firstName: true, lastName: true } },
@@ -95,6 +112,15 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const validated = createPaymentSchema.parse(body);
+
+    // Caretakers have monitor-only access to payments: they can watch
+    // collections for their assigned properties but can never record money.
+    if (session.role === 'CARETAKER') {
+      return NextResponse.json(
+        { success: false, error: 'Caretakers can monitor payments but cannot record them. Ask the manager or landlord.' },
+        { status: 403 }
+      );
+    }
 
     const isTenant = !isManagementRole(session.role);
 

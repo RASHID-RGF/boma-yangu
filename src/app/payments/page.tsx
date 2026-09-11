@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -107,6 +107,50 @@ export default function PaymentsPage() {
   }, []);
 
   useEffect(() => { fetchPayments(); }, [fetchPayments]);
+
+  // ---- Realtime monitoring ----
+  // Lightweight polling feed: watchers (landlord / manager / caretaker) get a
+  // live view that refreshes every 10s and pops a toast when a payment lands.
+  // Polling (not websockets) keeps this working on serverless deploys.
+  const isWatcher = isManagement || user?.role === UserRole.CARETAKER;
+  const knownPaymentIds = useRef<Set<string>>(new Set());
+  const firstLoadDone = useRef(false);
+
+  useEffect(() => {
+    if (!isWatcher) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/payments', { cache: 'no-store' });
+        const result = await res.json();
+        if (!res.ok || !result.success || cancelled) return;
+        const fresh: PaymentRow[] = result.data || [];
+        setPayments(fresh);
+        setStats(result.stats);
+        if (firstLoadDone.current) {
+          for (const p of fresh) {
+            if (!knownPaymentIds.current.has(p.id) && p.status === 'COMPLETED') {
+              toast.success(
+                `💰 ${p.tenant?.firstName || 'Tenant'} ${p.tenant?.lastName || ''} paid ${formatCurrency(p.amount)}` +
+                  (p.unit?.unitNumber ? ` (Unit ${p.unit.unitNumber})` : ''),
+                { duration: 6000 }
+              );
+            }
+          }
+        }
+        knownPaymentIds.current = new Set(fresh.map((p) => p.id));
+        firstLoadDone.current = true;
+      } catch {
+        // transient network error — retry on the next tick
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isWatcher]);
 
   // Open the tenant payment modal: load the tenant's unpaid invoices so they can
   // pay one of them OR make a direct payment without any invoice.
