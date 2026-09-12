@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { AuthLayout } from '@/components/layout/auth-layout';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { GoogleSignInButton } from '@/components/auth/google-sign-in-button';
 
-// Google "G" logo SVG - official colors: #4285F4, #EA4335, #FBBC05, #34A853
 function GoogleLogo({ className = 'w-5 h-5' }: { className?: string }) {
   return (
     <svg
@@ -38,9 +38,8 @@ function GoogleLogo({ className = 'w-5 h-5' }: { className?: string }) {
 }
 
 export default function RegisterPage() {
-  const { signInWithGoogle, user } = useAuth();
+  const { user } = useAuth();
 
-  // If already logged in, redirect
   if (user) {
     window.location.href = '/dashboard';
     return null;
@@ -56,17 +55,22 @@ export default function RegisterPage() {
           </p>
         </div>
 
-        <Button
-          type="button"
-          size="lg"
+        <GoogleSignInButton
+          label="Sign up with Google"
           className="w-full"
-          onClick={() => signInWithGoogle()}
-        >
-          <span className="flex items-center justify-center gap-3">
-            <GoogleLogo className="w-6 h-6" />
-            <span className="text-sm font-semibold text-gray-700">Sign up with Google</span>
-          </span>
-        </Button>
+          onSuccess={async (credential) => {
+            const res = await fetch('/api/auth/google', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ credential }),
+            });
+
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              throw new Error((data as { error?: string }).error || 'Google sign-in failed');
+            }
+          }}
+        />
 
         <p className="text-center text-sm text-gray-500">
           Already have an account?{' '}

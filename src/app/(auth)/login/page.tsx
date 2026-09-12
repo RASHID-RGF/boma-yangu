@@ -6,10 +6,10 @@ import { AuthLayout } from '@/components/layout/auth-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
+import { GoogleSignInButton } from '@/components/auth/google-sign-in-button';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-// Google "G" logo SVG - official colors: #4285F4, #EA4335, #FBBC05, #34A853
 function GoogleLogo({ className = 'w-5 h-5' }: { className?: string }) {
   return (
     <svg
@@ -46,9 +46,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { signInWithGoogle, user } = useAuth();
+  const { user } = useAuth();
 
-  // If already logged in, redirect
   if (user) {
     window.location.href = '/dashboard';
     return null;
@@ -62,8 +61,6 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      // TODO: Implement email/password login via Supabase
-      // For now, show message that only Google auth is available
       toast.error('Email/password login is not available. Please use Google sign-in.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Login failed');
@@ -75,25 +72,28 @@ export default function LoginPage() {
   return (
     <AuthLayout title="Welcome Back" subtitle="Sign in to your account to continue">
       <div className="space-y-6">
-        {/* Supabase Google Sign-In Button */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-4">
           <p className="text-sm text-gray-500 text-center mb-4">
             Sign in with your Google account to access Boma Yangu
           </p>
 
-          <Button
-            type="button"
-            size="lg"
+          <GoogleSignInButton
+            label="Continue with Google"
             className="w-full"
-            onClick={() => signInWithGoogle()}
-            loading={loading}
-          >
-            <span className="flex items-center justify-center gap-3">
-              <GoogleLogo className="w-6 h-6" />
-              <span className="text-sm font-semibold text-gray-700">Continue with Google</span>
-            </span>
-          </Button>
-        </form>
+            onSuccess={async (credential) => {
+              const res = await fetch('/api/auth/google', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credential }),
+              });
+
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error((data as { error?: string }).error || 'Google sign-in failed');
+              }
+            }}
+          />
+        </div>
 
         <div className="relative my-4">
           <div className="absolute inset-0 flex items-center">
@@ -104,7 +104,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Legacy email/password form (disabled) */}
         <div className="opacity-50 pointer-events-none space-y-4">
           <Input
             label="Email Address"
@@ -138,7 +137,11 @@ export default function LoginPage() {
 
           <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" name="remember" className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+              <input
+                type="checkbox"
+                name="remember"
+                className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
               <span className="text-sm text-gray-600">Remember me</span>
             </label>
             <Link href="/forgot-password" className="text-sm text-[#e2b714] hover:text-[#f5d742] font-medium">
