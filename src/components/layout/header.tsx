@@ -12,7 +12,11 @@ interface HeaderProps {
 }
 
 export function Header({ onMenuToggle }: HeaderProps) {
-  const { user, logout } = useAuth();
+  const { user, signOut } = useAuth();
+  const handleLogout = async () => {
+    setShowProfile(false);
+    await signOut();
+  };
   const { setIsOpen } = useSettings();
   const [showProfile, setShowProfile] = useState(false);
 
@@ -86,7 +90,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
                 <a href="/profile" className="block px-4 py-1.5 text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4]">Profile</a>
                 <hr className="my-1 border-[#2a2a3e]" />
                 <button
-                  onClick={logout}
+                  onClick={handleLogout}
                   className="w-full text-left px-4 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
                 >
                   Sign Out

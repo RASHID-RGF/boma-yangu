@@ -63,7 +63,11 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
     invoice ? `for invoice ${invoice.invoiceNumber}` : ''
   }. Receipt ${receiptNumber}. Transaction code ${options.transactionCode}.`;
 
-  const updated = await prisma.$transaction(async (tx) => {
+  // Interactive transaction writes to a remote MongoDB (Atlas) — each query pays
+  // round-trip latency, so the default 5s timeout can expire mid-transaction and
+  // abort a real payment. 15s covers ~9 sequential round-trips with headroom.
+  const updated = await prisma.$transaction(
+    async (tx) => {
     const paid = await tx.payment.update({
       where: { id: payment.id },
       data: {
@@ -180,7 +184,9 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
     }
 
     return paid;
-  });
+    },
+    { timeout: 15_000 }
+  );
 
   return updated;
 }

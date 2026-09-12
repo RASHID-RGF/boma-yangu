@@ -1,16 +1,15 @@
 'use client';
 
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
-import type { User, LoginForm, RegisterForm, ApiResponse, AuthResponse } from '@/types';
-import { useRouter } from 'next/navigation';
+import type { User } from '@/types';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   error: string | null;
-  login: (data: LoginForm) => Promise<void>;
-  register: (data: RegisterForm) => Promise<void>;
-  logout: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signOut: () => Promise<void>;
   updateUser: (user: User) => void;
 }
 
@@ -21,6 +20,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const errorParam = searchParams.get('error');
+    if (errorParam) {
+      setError(
+        errorParam === 'auth_callback_error'
+          ? 'Authentication failed. Please try again.'
+          : errorParam
+      );
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     checkAuth();
@@ -28,78 +39,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkAuth = async () => {
     try {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch('/api/users/me');
       if (res.ok) {
-        const data: ApiResponse<User> = await res.json();
+        const data = await res.json();
         if (data.success && data.data) {
           setUser(data.data);
         }
       }
-    } catch {
-      // Not authenticated
+    } catch (err) {
+      console.error('Auth check failed:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const login = useCallback(async (data: LoginForm) => {
+  const signInWithGoogle = useCallback(async () => {
+    // Handled by the Google Identity Services callback posted to /api/auth/google
+    // This method is kept for backward compatibility of the AuthContext shape.
+    setError('Use the Google Sign-In Button to continue.');
+    throw new Error('Use the Google Sign-In Button to continue.');
+  }, []);
+
+  const signOut = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const result: ApiResponse<AuthResponse> = await res.json();
-      if (!res.ok || !result.success) {
-        throw new Error(result.error || 'Login failed');
+      const res = await fetch('/api/auth/logout', { method: 'POST' });
+      if (!res.ok) {
+        throw new Error('Sign out failed');
       }
-      setUser(result.data!.user);
-      router.push('/dashboard');
+      setUser(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Sign out failed');
       throw err;
     } finally {
       setLoading(false);
     }
-  }, [router]);
-
-  const register = useCallback(async (data: RegisterForm) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const result: ApiResponse<AuthResponse> = await res.json();
-      if (!res.ok || !result.success) {
-        throw new Error(result.error || 'Registration failed');
-      }
-      setUser(result.data!.user);
-      router.push('/dashboard');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
-
-  const logout = useCallback(async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    setUser(null);
-    router.push('/login');
-  }, [router]);
+  }, []);
 
   const updateUser = useCallback((updatedUser: User) => {
     setUser(updatedUser);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, error, signInWithGoogle, signOut, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
