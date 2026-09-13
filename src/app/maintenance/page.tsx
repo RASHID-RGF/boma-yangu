@@ -50,8 +50,8 @@ const STATUS_OPTIONS = [
 export default function MaintenancePage() {
   const { user } = useAuth();
   const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
-  // Only a tenant with a linked Tenant record can submit a request via this API.
-  const canReport = user?.role === UserRole.TENANT;
+  // Both tenants and management can report issues.
+  const canReport = true;
   const [requests, setRequests] = useState<MaintenanceRow[]>([]);
   const [stats, setStats] = useState({ openCount: 0, count: 0, urgentCount: 0 });
   const [loading, setLoading] = useState(true);

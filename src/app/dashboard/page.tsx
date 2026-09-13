@@ -20,7 +20,7 @@ import { UserRole } from '@/types';
 // Management-only quick actions (properties/tenants/payments are landlord & manager sections)
 const MANAGEMENT_ACTIONS = [
   { label: 'Add Property', href: '/properties/new', icon: Building2, color: 'bg-blue-500' },
-  { label: 'Add Tenant', href: '/tenants/new', icon: Users, color: 'bg-emerald-500' },
+  { label: 'Add Tenant', href: '/tenants', icon: Users, color: 'bg-emerald-500' },
   { label: 'Record Payment', href: '/payments', icon: Wallet, color: 'bg-purple-500' },
 ];
 
@@ -119,12 +119,12 @@ export default function DashboardPage() {
             trendUp: true,
           },
           {
-            label: 'Occupancy Rate',
+            label: 'My Room Occupied',
             value: formatPercentage(stats?.occupancyRate ?? 0),
             icon: TrendingUp,
             color: 'text-purple-600',
             bg: 'bg-purple-50',
-            trend: 'Estate occupancy',
+            trend: 'Your allocated room',
             trendUp: true,
           },
         ]
@@ -212,6 +212,34 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* Tenant: the room the landlord allocated to them */}
+        {!isManagement && user?.role === UserRole.TENANT && (
+          <Card className={stats?.allocatedRoom ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-200 bg-amber-50/50'}>
+            <CardContent className="p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-xl ${stats?.allocatedRoom ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+                  <DoorOpen className={`w-5 h-5 ${stats?.allocatedRoom ? 'text-emerald-600' : 'text-amber-600'}`} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {stats?.allocatedRoom ? `Your room: ${stats.allocatedRoom.unitNumber}` : 'No room allocated yet'}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {stats?.allocatedRoom
+                      ? `${stats.allocatedRoom.propertyName || 'Your property'} — allocated to you by your landlord.`
+                      : 'Your landlord has not allocated you a room yet. Contact them to get a room.'}
+                  </p>
+                </div>
+              </div>
+              <Link href="/my-room">
+                <Button variant="outline" size="sm" className="gap-1.5 whitespace-nowrap">
+                  View My Room
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Quick Actions */}
         <div className="flex items-center gap-4 overflow-x-auto pb-2">

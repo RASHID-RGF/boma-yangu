@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { getSession, hashPassword } from '@/lib/auth/jwt';
+import { getSession } from '@/lib/auth/jwt';
+import { hashPassword } from '@/lib/auth/password';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 

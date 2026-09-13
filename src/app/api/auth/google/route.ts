@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import prisma from '@/lib/db/prisma';
 import { createToken, setSessionCookie } from '@/lib/auth/jwt';
+import { hashPassword } from '@/lib/auth/password';
 import { verifyGoogleToken } from '@/lib/auth/google';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import type { UserRole } from '@/types';
@@ -110,7 +111,3 @@ export async function POST(request: Request) {
   }
 }
 
-async function hashPassword(password: string): Promise<string> {
-  const bcrypt = await import('bcryptjs');
-  return bcrypt.hash(password, 12);
-}

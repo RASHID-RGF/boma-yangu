@@ -306,6 +306,8 @@ export interface DashboardStats {
   incomeVsExpenses: { month: string; income: number; expenses: number }[];
   propertyOccupancy: { name: string; occupied: number; vacant: number }[];
   recentActivities: ActivityLog[];
+  /** Tenant-only: the room the landlord allocated to the signed-in tenant. */
+  allocatedRoom?: { unitNumber: string; propertyName: string | null } | null;
 }
 
 export interface ActivityLog {

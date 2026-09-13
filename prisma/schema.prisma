@@ -85,7 +85,8 @@ model Unit {
   unitNumber    String
   description   String?
   floorNumber   Int?
-  monthlyRent   Float
+  monthlyRent   Float    @default(0)
+  baseRent      Float?
   depositAmount Float    @default(0)
   utilityCharges Float   @default(0)
   waterCharge   Float    @default(0)
@@ -252,10 +253,10 @@ model MaintenanceRequest {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  tenantId      String   @db.ObjectId
-  tenant        Tenant   @relation(fields: [tenantId], references: [id])
-  unitId        String   @db.ObjectId
-  unit          Unit     @relation(fields: [unitId], references: [id])
+  tenantId      String?  @db.ObjectId
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id])
+  unitId        String?  @db.ObjectId
+  unit          Unit?    @relation(fields: [unitId], references: [id])
   reportedById  String   @db.ObjectId
   reportedBy    User     @relation("MaintenanceReporter", fields: [reportedById], references: [id])
   assignedToId  String?  @db.ObjectId

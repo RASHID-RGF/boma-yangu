@@ -31,8 +31,21 @@ export async function GET() {
       });
     }
 
+    // Scope management to their own properties.
+    let managementWhere = {};
+    if (isManagementRole(session.role) && session.role !== 'SUPER_ADMIN') {
+      const properties = await prisma.property.findMany({
+        where: { OR: [{ ownerId: session.userId }, { managerId: session.userId }] },
+        select: { id: true },
+      });
+      const propertyIds = properties.map((p) => p.id);
+      managementWhere = { unit: { propertyId: { in: propertyIds } } };
+    }
+
     const requests = await prisma.maintenanceRequest.findMany({
-      where: tenantRecord ? { tenantId: tenantRecord.id } : {},
+      where: tenantRecord
+        ? { tenantId: tenantRecord.id }
+        : managementWhere,
       orderBy: { createdAt: 'desc' },
       include: {
         tenant: { select: { firstName: true, lastName: true } },
@@ -65,30 +78,42 @@ export async function POST(request: Request) {
     const body = await request.json();
     const validated = createMaintenanceSchema.parse(body);
 
-    const tenantRecord = !isManagementRole(session.role) ? await ensureTenantRecord(session.userId) : null;
-    if (!tenantRecord) {
-      return NextResponse.json(
-        { success: false, error: 'No tenant profile linked to this account. Contact management.' },
-        { status: 400 }
-      );
-    }
-    if (!tenantRecord.unitId) {
-      return NextResponse.json(
-        { success: false, error: 'No unit linked to your tenant profile. Contact management.' },
-        { status: 400 }
-      );
+    // Management can report issues for any unit; tenants must have a linked profile.
+    let tenantRecord = null;
+    let unitId: string | null = null;
+
+    if (isManagementRole(session.role)) {
+      // Management: unitId is optional — they can report estate-wide issues.
+      unitId = (body as any).unitId || null;
+    } else {
+      tenantRecord = await ensureTenantRecord(session.userId);
+      if (!tenantRecord) {
+        return NextResponse.json(
+          { success: false, error: 'No tenant profile linked to this account. Contact management.' },
+          { status: 400 }
+        );
+      }
+      if (!tenantRecord.unitId) {
+        return NextResponse.json(
+          { success: false, error: 'No unit linked to your tenant profile. Contact management.' },
+          { status: 400 }
+        );
+      }
+      unitId = tenantRecord.unitId;
     }
 
-    const request_ = await prisma.maintenanceRequest.create({
-      data: {
+    const data: any = {
         title: validated.title,
         description: validated.description,
         priority: validated.priority,
         status: 'REPORTED',
-        tenantId: tenantRecord.id,
-        unitId: tenantRecord.unitId,
         reportedById: session.userId,
-      },
+      };
+      if (tenantRecord?.id) data.tenantId = tenantRecord.id;
+      if (unitId) data.unitId = unitId;
+
+    const request_ = await prisma.maintenanceRequest.create({
+      data,
       include: {
         tenant: { select: { firstName: true, lastName: true } },
         unit: { select: { unitNumber: true } },

@@ -3,61 +3,85 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { canAccessRoute, getRoleHome } from '@/lib/auth/rbac';
 import type { UserRole } from '@/types';
 
-const PUBLIC_ROUTES = ['/', '/home'];
+const PUBLIC_ROUTES = [
+  '/',
+  '/home',
+  '/login',
+  '/register',
+  '/forgot-password',
+];
+
 const API_PUBLIC_ROUTES = [
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/google',
+  '/api/auth/google/signin',
   '/api/auth/callback',
+  '/api/auth/callback/google',
+  '/api/auth/logout',
   '/api/payments/palpluss-callback',
   '/api/payments/daraja-callback',
 ];
 
+const AUTH_ONLY_UNAUTHENTICATED = [
+  '/login',
+  '/register',
+  '/forgot-password',
+];
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const normalizedPath = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
 
-  if (PUBLIC_ROUTES.includes(pathname) || API_PUBLIC_ROUTES.includes(pathname)) {
-    return NextResponse.next();
-  }
-
+  // 1. Static assets bypass
   if (
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/images') ||
-    pathname.startsWith('/favicon')
+    normalizedPath.startsWith('/_next') ||
+    normalizedPath.startsWith('/images') ||
+    normalizedPath.startsWith('/favicon')
   ) {
     return NextResponse.next();
   }
 
+  // 2. Public API routes bypass
+  if (API_PUBLIC_ROUTES.some((route) => normalizedPath === route || normalizedPath.startsWith(`${route}/`))) {
+    return NextResponse.next();
+  }
+
   const token = request.cookies.get('boma-yangu-session')?.value;
+  const payload = token ? await verifyToken(token) : null;
 
-  if (!token) {
-    if (!pathname.startsWith('/api')) {
-      const url = new URL('/home', request.url);
-      url.searchParams.set('redirect', pathname);
-      return NextResponse.redirect(url);
+  // 3. Auth pages (/login, /register, /forgot-password)
+  if (AUTH_ONLY_UNAUTHENTICATED.includes(normalizedPath)) {
+    if (payload) {
+      const role = payload.role as UserRole | undefined;
+      return NextResponse.redirect(new URL(role ? getRoleHome(role) : '/dashboard', request.url));
     }
-
-    return NextResponse.json(
-      { success: false, error: 'Unauthorized' },
-      { status: 401 }
-    );
+    return NextResponse.next();
   }
 
-  const payload = await verifyToken(token);
+  // 4. Public pages ('/', '/home')
+  if (PUBLIC_ROUTES.includes(normalizedPath)) {
+    return NextResponse.next();
+  }
 
+  // 5. Unauthenticated access to protected routes
   if (!payload) {
-    if (!pathname.startsWith('/api')) {
-      const url = new URL('/home', request.url);
+    if (!normalizedPath.startsWith('/api')) {
+      const url = new URL('/login', request.url);
       url.searchParams.set('redirect', pathname);
       return NextResponse.redirect(url);
     }
 
     return NextResponse.json(
-      { success: false, error: 'Invalid session' },
+      { success: false, error: token ? 'Invalid session' : 'Unauthorized' },
       { status: 401 }
     );
   }
 
-  if (!pathname.startsWith('/api')) {
+  // 6. Role-based route guard
+  if (!normalizedPath.startsWith('/api')) {
     const role = payload.role as UserRole | undefined;
-    if (role && !canAccessRoute(role, pathname)) {
+    if (role && !canAccessRoute(role, normalizedPath)) {
       return NextResponse.redirect(new URL(getRoleHome(role), request.url));
     }
   }

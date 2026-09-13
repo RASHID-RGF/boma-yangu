@@ -275,7 +275,7 @@ export default function LandingPage() {
           <div className="flex items-center justify-center gap-4 flex-wrap">            <Link href="/register" className="btn-gold rounded-xl px-8 py-4 text-base md:text-lg flex items-center gap-2">
               Start Free Trial <ArrowRight className="w-5 h-5" />
             </Link>
-            <Link href="/features" className="btn-gold-outline rounded-xl px-8 py-4 text-base md:text-lg">
+            <Link href="#features" className="btn-gold-outline rounded-xl px-8 py-4 text-base md:text-lg">
               Learn More
             </Link>
           </div>

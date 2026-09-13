@@ -11,10 +11,11 @@ import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency, formatDate, getInitials, formatPhone } from '@/lib/utils/format';
+import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { UserRole } from '@/types';
 import {
   Users, Search, Phone, Mail, DoorOpen,
-  Landmark, RefreshCw, Inbox,
+  Landmark, RefreshCw, Inbox, UserCog, UserPlus,
 } from 'lucide-react';
 
 interface TenantRow {
@@ -35,6 +36,9 @@ interface TenantRow {
       name: string;
       ownerId?: string | null;
       owner?: { firstName: string; lastName: string; email?: string | null } | null;
+      caretakerAssignments?: {
+        caretaker: { id: string; firstName: string; lastName: string; phone?: string | null };
+      }[];
     } | null;
   } | null;
   user?: { id: string; email: string } | null;
@@ -44,6 +48,7 @@ interface UnitOption {
   id: string;
   unitNumber: string;
   monthlyRent: number;
+  status?: string;
   property?: { id: string; name: string } | null;
 }
 
@@ -60,6 +65,18 @@ export default function TenantsPage() {
   const [assignTenant, setAssignTenant] = useState<TenantRow | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState('');
   const [assigning, setAssigning] = useState(false);
+
+  // Add Tenant modal (add a tenant and allocate a room in one step)
+  const [addOpen, setAddOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addForm, setAddForm] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+    idNumber: '',
+    unitId: '',
+  });
 
   const fetchTenants = useCallback(async () => {
     setLoading(true);
@@ -114,6 +131,52 @@ export default function TenantsPage() {
     }
   };
 
+  // Open the Add Tenant modal: load rooms to allocate.
+  const openAddModal = useCallback(async () => {
+    setAddForm({ firstName: '', lastName: '', phone: '', email: '', idNumber: '', unitId: '' });
+    setAddOpen(true);
+    try {
+      const res = await fetch('/api/units');
+      const result = await res.json();
+      if (res.ok && result.success) setUnits(result.data || []);
+    } catch {
+      toast.error('Could not load units');
+    }
+  }, []);
+
+  // Add the tenant and (optionally) allocate the room in one request.
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdding(true);
+    try {
+      const res = await fetch('/api/tenants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: addForm.firstName,
+          lastName: addForm.lastName,
+          phone: addForm.phone,
+          email: addForm.email || undefined,
+          idNumber: addForm.idNumber || undefined,
+          unitId: addForm.unitId || undefined,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.error || 'Failed to add tenant');
+      toast.success(
+        addForm.unitId
+          ? 'Tenant added and room allocated — they can now see it under My Room'
+          : 'Tenant added'
+      );
+      setAddOpen(false);
+      await fetchTenants();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add tenant');
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const filtered = tenants.filter((t) => {
     if (!search) return true;
     const q = search.toLowerCase();
@@ -130,6 +193,14 @@ export default function TenantsPage() {
     label: `${u.unitNumber} — ${u.property?.name || 'No property'} (${formatCurrency(u.monthlyRent)}/mo)`,
   }));
 
+  // Only vacant rooms can be allocated to a new tenant.
+  const vacantUnitOptions: { value: string; label: string }[] = units
+    .filter((u) => isVacantUnitStatus(u.status))
+    .map((u) => ({
+      value: u.id,
+      label: `${u.unitNumber} — ${u.property?.name || 'No property'} (${formatCurrency(u.monthlyRent)}/mo)`,
+    }));
+
   const activeCount = tenants.filter((t) => t.isActive).length;
   const withUnitCount = tenants.filter((t) => t.unit).length;
   const monthlyRent = tenants.reduce((s, t) => s + (t.unit?.monthlyRent || 0), 0);
@@ -142,13 +213,21 @@ export default function TenantsPage() {
             <h1 className="text-2xl font-bold text-gray-900">Tenants</h1>
             <p className="text-gray-500 mt-1">Assign units to tenants so each one pays for their own unit</p>
           </div>
-          <button
-            onClick={fetchTenants}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchTenants}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh
+            </button>
+            {isManagement && (
+              <Button className="gap-2" onClick={openAddModal}>
+                <UserPlus className="w-4 h-4" />
+                Add Tenant
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Stats */}
@@ -215,7 +294,7 @@ export default function TenantsPage() {
                     <tr className="border-b border-gray-100">
                       <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-4">Tenant</th>
                       <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-4">Unit</th>
-                      <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-4">Landlord</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-4">Landlord / Caretaker</th>
                       <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-4">Contact</th>
                       <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-4">Rent</th>
                       <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-4">Status</th>
@@ -225,6 +304,7 @@ export default function TenantsPage() {
                   <tbody className="divide-y divide-gray-50">
                     {filtered.map((tenant) => {
                       const landlord = tenant.unit?.property?.owner;
+                      const caretaker = tenant.unit?.property?.caretakerAssignments?.[0]?.caretaker;
                       return (
                         <tr key={tenant.id} className="hover:bg-gray-50 transition-colors">
                           <td className="px-6 py-4">
@@ -249,14 +329,24 @@ export default function TenantsPage() {
                             )}
                           </td>
                           <td className="px-6 py-4">
-                            {landlord ? (
-                              <div className="flex items-center gap-1.5 text-sm text-gray-600">
-                                <Landmark className="w-3.5 h-3.5 text-gray-400" />
-                                {landlord.firstName} {landlord.lastName}
-                              </div>
-                            ) : (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
+                            <div className="space-y-1">
+                              {landlord ? (
+                                <div className="flex items-center gap-1.5 text-sm text-gray-600">
+                                  <Landmark className="w-3.5 h-3.5 text-gray-400" />
+                                  {landlord.firstName} {landlord.lastName}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-400">No landlord linked</span>
+                              )}
+                              {caretaker ? (
+                                <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                                  <UserCog className="w-3.5 h-3.5 text-gray-400" />
+                                  {caretaker.firstName} {caretaker.lastName}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-400">No caretaker linked</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-6 py-4">
                             <div className="space-y-1">
@@ -269,6 +359,12 @@ export default function TenantsPage() {
                                   <Mail className="w-3.5 h-3.5 text-gray-400" />
                                   {tenant.email}
                                 </div>
+                              )}
+                              {!tenant.user && (
+                                <p className="text-[11px] text-amber-500 leading-tight">
+                                  Not signed in yet — links automatically when they sign in with this
+                                  {tenant.email ? ' email or phone' : ' phone'}.
+                                </p>
                               )}
                             </div>
                           </td>
@@ -312,11 +408,10 @@ export default function TenantsPage() {
           <Select
             name="unitId"
             label="Unit"
-            placeholder="Select a unit"
-            options={unitOptions}
+            placeholder={assignTenant?.unit ? 'Change to another unit' : 'Select a unit'}
+            options={assignTenant?.unit ? [{ value: '', label: '— Remove unit (unassign) —' }, ...unitOptions] : unitOptions}
             value={selectedUnitId}
             onChange={(e) => setSelectedUnitId(e.target.value)}
-            required
           />
           {selectedUnitId && units.find((u) => u.id === selectedUnitId)?.property?.name && (
             <p className="text-xs text-[#646669]">
@@ -330,6 +425,81 @@ export default function TenantsPage() {
             </Button>
             <Button type="submit" loading={assigning}>
               Assign Unit
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Add Tenant Modal */}
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Add Tenant"
+        subtitle="Add a tenant and allocate them a room — they will see it under My Room"
+      >
+        <form onSubmit={handleAdd} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              name="firstName"
+              label="First Name"
+              placeholder="e.g. Mary"
+              required
+              value={addForm.firstName}
+              onChange={(e) => setAddForm((f) => ({ ...f, firstName: e.target.value }))}
+            />
+            <Input
+              name="lastName"
+              label="Last Name"
+              placeholder="e.g. Nyambura"
+              required
+              value={addForm.lastName}
+              onChange={(e) => setAddForm((f) => ({ ...f, lastName: e.target.value }))}
+            />
+          </div>
+          <Input
+            name="phone"
+            label="Phone Number"
+            placeholder="e.g. 0712345678"
+            required
+            value={addForm.phone}
+            onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))}
+            icon={<Phone className="w-4 h-4" />}
+          />
+          <Input
+            name="email"
+            label="Email (optional)"
+            type="email"
+            placeholder="e.g. mary@example.com"
+            value={addForm.email}
+            onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+            icon={<Mail className="w-4 h-4" />}
+          />
+          <Input
+            name="idNumber"
+            label="ID Number (optional)"
+            placeholder="e.g. 31234567"
+            value={addForm.idNumber}
+            onChange={(e) => setAddForm((f) => ({ ...f, idNumber: e.target.value }))}
+          />
+          <Select
+            name="unitId"
+            label="Allocate Room (optional)"
+            placeholder={vacantUnitOptions.length ? 'Select a vacant room' : 'No vacant rooms'}
+            options={vacantUnitOptions}
+            value={addForm.unitId}
+            onChange={(e) => setAddForm((f) => ({ ...f, unitId: e.target.value }))}
+          />
+          <p className="text-xs text-[#646669]">
+            Enter the tenant&apos;s email or phone and their account links automatically — when they
+            sign in they will see the room you allocated here. The room starts at KES 0 and only
+            records payments the tenant makes.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={adding}>
+              Add Tenant
             </Button>
           </div>
         </form>

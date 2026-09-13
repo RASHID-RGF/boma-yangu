@@ -54,10 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGoogle = useCallback(async () => {
-    // Handled by the Google Identity Services callback posted to /api/auth/google
-    // This method is kept for backward compatibility of the AuthContext shape.
-    setError('Use the Google Sign-In Button to continue.');
-    throw new Error('Use the Google Sign-In Button to continue.');
+    window.location.href = '/api/auth/google/signin';
   }, []);
 
   const signOut = useCallback(async () => {
@@ -69,13 +66,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Sign out failed');
       }
       setUser(null);
+      router.push('/login');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign out failed');
       throw err;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   const updateUser = useCallback((updatedUser: User) => {
     setUser(updatedUser);

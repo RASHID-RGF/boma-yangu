@@ -65,12 +65,29 @@ export async function GET() {
       caretakerPropertyIds = assignments.map((a) => a.propertyId);
     }
 
+    // Scope to the landlord's own properties (or all for super admin).
+    let managementPropertyFilter: any = null;
+    if (isManagementRole(session.role) && session.role !== 'SUPER_ADMIN') {
+      const properties = await prisma.property.findMany({
+        where: {
+          OR: [
+            { ownerId: session.userId },
+            { managerId: session.userId },
+          ],
+        },
+        select: { id: true },
+      });
+      managementPropertyFilter = properties.map((p) => p.id);
+    }
+
     const payments = await prisma.payment.findMany({
       where: tenantRecord
         ? { tenantId: tenantRecord.id }
         : caretakerPropertyIds
           ? { unit: { propertyId: { in: caretakerPropertyIds } } }
-          : {},
+          : managementPropertyFilter
+            ? { unit: { propertyId: { in: managementPropertyFilter } } }
+            : {},
       orderBy: { paymentDate: 'desc' },
       include: {
         tenant: { select: { firstName: true, lastName: true } },
@@ -127,8 +144,8 @@ export async function POST(request: Request) {
     // ---------- Resolve the payment's tenant / unit / invoice ----------
     let invoice: any = null;
     let tenantId: string;
-    // Nullable: a self-registered tenant may not have a unit assigned yet, and
-    // can still make a direct rent payment (management assigns the unit later).
+    // Set from the tenant's allocated room. A tenant must have a room before
+    // they can pay (see the guard in the direct-payment branch below).
     let unitId: string | null = null;
     // Fallback M-Pesa number for link payments that didn't supply one (the
     // webhook matches by phone+amount, so a record without a phone can never
@@ -180,9 +197,20 @@ export async function POST(request: Request) {
             { status: 400 }
           );
         }
+        // A tenant pays for the room the landlord allocated to them — a tenant
+        // with no room has nothing to pay for yet.
+        if (!tenantRecord.unitId) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'You have not been allocated a room yet. Contact your landlord to assign one.',
+            },
+            { status: 400 }
+          );
+        }
         tenantRecordPhone = tenantRecord.phone || null;
         tenantId = tenantRecord.id;
-        unitId = tenantRecord.unitId || null;
+        unitId = tenantRecord.unitId;
       } else {
         // Management direct-record: a tenant must be picked; the unit is
         // resolved from the tenant record so the estate stays consistent.

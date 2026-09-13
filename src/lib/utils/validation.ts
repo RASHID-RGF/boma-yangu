@@ -1,9 +1,13 @@
 import { z } from 'zod';
 
 export const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').optional().nullable(),
+  phone: z.string().optional().nullable(),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-});
+}).refine(
+  (data) => data.email || data.phone,
+  { message: 'Enter your email or phone number', path: ['email'] },
+);
 
 export const registerSchema = z.object({
   firstName: z.string().min(2, 'First name must be at least 2 characters'),

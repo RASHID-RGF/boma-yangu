@@ -31,6 +31,15 @@ export const MONITORING_ROLES: UserRole[] = [
   UserRole.CARETAKER,
 ];
 
+/**
+ * Everyone who can open the money sections (pay / invoices): management and
+ * caretakers monitor them, tenants pay their own room through them.
+ */
+export const PAYMENT_ROLES: UserRole[] = [
+  ...FINANCIAL_ROLES,
+  UserRole.CARETAKER,
+];
+
 export const ALL_ROLES: UserRole[] = Object.values(UserRole);
 
 // ============ ROUTE ACCESS RULES ============
@@ -44,11 +53,12 @@ export const ROUTE_ACCESS: RouteRule[] = [
   { prefix: '/admin', roles: [UserRole.SUPER_ADMIN] },
   { prefix: '/portal/tenant', roles: [UserRole.TENANT] },
   { prefix: '/portal/caretaker', roles: [UserRole.CARETAKER] },
+  { prefix: '/my-room', roles: [UserRole.TENANT] },
   { prefix: '/properties', roles: MANAGEMENT_ROLES },
   { prefix: '/units', roles: OPERATIONS_ROLES },
   { prefix: '/tenants', roles: MANAGEMENT_ROLES },
-  { prefix: '/payments', roles: [...FINANCIAL_ROLES, UserRole.CARETAKER] },
-  { prefix: '/invoices', roles: [...FINANCIAL_ROLES, UserRole.CARETAKER] },
+  { prefix: '/payments', roles: PAYMENT_ROLES },
+  { prefix: '/invoices', roles: PAYMENT_ROLES },
   { prefix: '/maintenance', roles: ALL_ROLES },
   { prefix: '/leases', roles: MANAGEMENT_ROLES },
   { prefix: '/reports', roles: MANAGEMENT_ROLES },

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { hashPassword, createToken, setSessionCookie } from '@/lib/auth/jwt';
+import { createToken, setSessionCookie } from '@/lib/auth/jwt';
+import { hashPassword } from '@/lib/auth/password';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { registerSchema } from '@/lib/utils/validation';
 import type { UserRole } from '@/types';
@@ -27,7 +28,6 @@ export async function POST(request: Request) {
     const user = await prisma.user.create({
       data: {
         email: validated.email,
-        phone: validated.phone,
         firstName: validated.firstName,
         lastName: validated.lastName,
         passwordHash,

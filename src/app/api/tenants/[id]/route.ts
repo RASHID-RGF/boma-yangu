@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
+import { findMatchingTenantUser, normalizeEmail } from '@/lib/auth/tenant-scope';
+import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 
@@ -69,12 +71,18 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       const otherOccupant = newUnit.tenants?.find(
         (t) => t.id !== tenant.id && t.isActive
       );
-      if (otherOccupant) {
+      if (!isVacantUnitStatus(newUnit.status) && otherOccupant) {
         return NextResponse.json(
           {
             success: false,
             error: `Unit ${newUnit.unitNumber} is already occupied by ${otherOccupant.firstName} ${otherOccupant.lastName}. Unassign them first.`,
           },
+          { status: 400 }
+        );
+      }
+      if (!isVacantUnitStatus(newUnit.status)) {
+        return NextResponse.json(
+          { success: false, error: `Unit ${newUnit.unitNumber} is not vacant and cannot be assigned.` },
           { status: 400 }
         );
       }
@@ -91,7 +99,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (validated.firstName) data.firstName = validated.firstName;
       if (validated.lastName) data.lastName = validated.lastName;
       if (validated.phone) data.phone = validated.phone;
-      if (validated.email !== undefined) data.email = validated.email || null;
+      if (validated.email !== undefined) data.email = normalizeEmail(validated.email);
       if (unitChanged) {
         data.unit = newUnitId ? { connect: { id: newUnitId } } : { disconnect: true };
       }
@@ -149,20 +157,33 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       return updatedTenant;
     });
 
+    // ---- Link the tenant's login account (so they can see their room) ----
+    // A tenant may have been onboarded by the landlord before the person ever
+    // registered. On allocation, claim the matching account so the assignment
+    // reaches them and "My Room" shows the allocated unit.
+    let tenantUserId = updated.userId || null;
+    if (unitChanged && !tenantUserId) {
+      const linkedUser = await findMatchingTenantUser(updated.email, updated.phone);
+      if (linkedUser) {
+        await prisma.tenant.update({ where: { id: updated.id }, data: { userId: linkedUser.id } });
+        tenantUserId = linkedUser.id;
+      }
+    }
+
     // ---- Notifications ----
     try {
       const landlordId = updated.unit?.property?.ownerId || null;
 
       // Tell the tenant about their new unit (the tenant is now linked to the
       // landlord who owns the unit's property).
-      if (tenant.userId && unitChanged) {
+      if (tenantUserId && unitChanged) {
         await prisma.notification.create({
           data: {
-            userId: tenant.userId,
+            userId: tenantUserId,
             type: 'ANNOUNCEMENT',
             title: 'Unit assigned',
             message: newUnit
-              ? `You have been assigned unit ${newUnit.unitNumber} at ${newUnitProperty?.name || 'the estate'}. You can now pay rent for your unit in the Payments section.`
+              ? `You have been assigned unit ${newUnit.unitNumber} at ${newUnitProperty?.name || 'the estate'}. Open "My Room" to see it and pay rent for it.`
               : 'Your unit assignment was removed. Contact management if this is unexpected.',
           },
         });

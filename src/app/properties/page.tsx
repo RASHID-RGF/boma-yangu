@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge, STATUS_VARIANTS } from '@/components/ui/badge';
@@ -11,38 +11,22 @@ import { formatCurrency } from '@/lib/utils/format';
 import { PropertyType, PROPERTY_TYPE_LABELS } from '@/types';
 import {
   Building2, Plus, Search, MapPin, Home,
-  Users, MoreHorizontal, Edit, Trash2,
+  Users, MoreHorizontal, Inbox,
 } from 'lucide-react';
 import Link from 'next/link';
 
-// Demo data for UI demonstration
-const DEMO_PROPERTIES = [
-  {
-    id: '1', name: 'Green Heights Apartments', type: PropertyType.APARTMENT, status: 'OCCUPIED',
-    city: 'Nairobi', address: 'Kilimani', totalUnits: 12, occupiedUnits: 10, monthlyIncome: 450000,
-    description: 'Modern apartment complex in the heart of Kilimani',
-  },
-  {
-    id: '2', name: 'Sunrise Bedsitters', type: PropertyType.BEDSITTER, status: 'OCCUPIED',
-    city: 'Nairobi', address: 'South B', totalUnits: 8, occupiedUnits: 7, monthlyIncome: 140000,
-    description: 'Affordable bedsitters in a quiet neighborhood',
-  },
-  {
-    id: '3', name: 'Mountain View Maisonettes', type: PropertyType.MAISONETTE, status: 'VACANT',
-    city: 'Nakuru', address: 'Milimani', totalUnits: 6, occupiedUnits: 2, monthlyIncome: 240000,
-    description: 'Spacious maisonettes with beautiful mountain views',
-  },
-  {
-    id: '4', name: 'Ocean Breeze Villas', type: PropertyType.VILLA, status: 'UNDER_MAINTENANCE',
-    city: 'Mombasa', address: 'Nyali', totalUnits: 4, occupiedUnits: 0, monthlyIncome: 320000,
-    description: 'Luxury beachfront villas undergoing renovation',
-  },
-  {
-    id: '5', name: 'CBD Commercial Complex', type: PropertyType.COMMERCIAL, status: 'OCCUPIED',
-    city: 'Nairobi', address: 'CBD', totalUnits: 10, occupiedUnits: 9, monthlyIncome: 680000,
-    description: 'Prime commercial spaces in the city center',
-  },
-];
+interface PropertyRow {
+  id: string;
+  name: string;
+  type: PropertyType;
+  status: string;
+  city?: string | null;
+  address?: string | null;
+  totalUnits: number;
+  occupiedUnits: number;
+  monthlyIncome: number;
+  description?: string | null;
+}
 
 const PROPERTY_TYPE_OPTIONS = [
   { value: '', label: 'All Types' },
@@ -50,12 +34,32 @@ const PROPERTY_TYPE_OPTIONS = [
 ];
 
 export default function PropertiesPage() {
+  const [properties, setProperties] = useState<PropertyRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
 
-  const filtered = DEMO_PROPERTIES.filter((p) => {
+  const fetchProperties = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/properties');
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.error || 'Failed to load properties');
+      setProperties(result.data || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load properties');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchProperties(); }, [fetchProperties]);
+
+  const filtered = properties.filter((p) => {
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.city.toLowerCase().includes(search.toLowerCase());
+      (p.city || '').toLowerCase().includes(search.toLowerCase());
     const matchesType = !typeFilter || p.type === typeFilter;
     return matchesSearch && matchesType;
   });
@@ -96,50 +100,69 @@ export default function PropertiesPage() {
         </div>
 
         {/* Property Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filtered.map((property) => (
-            <Link key={property.id} href={`/properties/${property.id}`}>
-              <Card className="card-hover cursor-pointer group">
-                <div className="h-40 bg-gradient-to-br from-emerald-100 to-emerald-50 rounded-t-xl flex items-center justify-center relative overflow-hidden">
-                  <Building2 className="w-16 h-16 text-emerald-300" />
-                  <Badge
-                    variant={STATUS_VARIANTS[property.status] || 'default'}
-                    className="absolute top-3 right-3"
-                  >
-                    {property.status.replace(/_/g, ' ')}
-                  </Badge>
-                </div>
-                <CardContent className="p-5">
-                  <h3 className="font-semibold text-gray-900 mb-2 group-hover:text-emerald-600 transition-colors">
-                    {property.name}
-                  </h3>
-                  <div className="space-y-2 text-sm text-gray-500">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-3.5 h-3.5" />
-                      {property.city}, {property.address}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Home className="w-3.5 h-3.5" />
-                      {property.occupiedUnits}/{property.totalUnits} Units Occupied
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Users className="w-3.5 h-3.5" />
-                      {PROPERTY_TYPE_LABELS[property.type]}
-                    </div>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-64 bg-gray-100 rounded-xl animate-pulse" />
+            ))}
+          </div>
+        ) : error ? (
+          <Card>
+            <CardContent className="p-8 text-center text-sm text-red-400">{error}</CardContent>
+          </Card>
+        ) : filtered.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center text-gray-400">
+              <Inbox className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>{search || typeFilter ? 'No properties match your filters' : 'No properties yet. Add your first property to get started.'}</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map((property) => (
+              <Link key={property.id} href={`/properties/${property.id}`}>
+                <Card className="card-hover cursor-pointer group">
+                  <div className="h-40 bg-gradient-to-br from-emerald-100 to-emerald-50 rounded-t-xl flex items-center justify-center relative overflow-hidden">
+                    <Building2 className="w-16 h-16 text-emerald-300" />
+                    <Badge
+                      variant={STATUS_VARIANTS[property.status] || 'default'}
+                      className="absolute top-3 right-3"
+                    >
+                      {property.status.replace(/_/g, ' ')}
+                    </Badge>
                   </div>
-                  <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-emerald-600">
-                      {formatCurrency(property.monthlyIncome)}/mo
-                    </span>
-                    <button className="p-1.5 rounded-lg hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <MoreHorizontal className="w-4 h-4 text-gray-400" />
-                    </button>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
+                  <CardContent className="p-5">
+                    <h3 className="font-semibold text-gray-900 mb-2 group-hover:text-emerald-600 transition-colors">
+                      {property.name}
+                    </h3>
+                    <div className="space-y-2 text-sm text-gray-500">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-3.5 h-3.5" />
+                        {property.city}, {property.address}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Home className="w-3.5 h-3.5" />
+                        {property.occupiedUnits}/{property.totalUnits} Units Occupied
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Users className="w-3.5 h-3.5" />
+                        {PROPERTY_TYPE_LABELS[property.type]}
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-emerald-600">
+                        {formatCurrency(property.monthlyIncome)}/mo
+                      </span>
+                      <button className="p-1.5 rounded-lg hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <MoreHorizontal className="w-4 h-4 text-gray-400" />
+                      </button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

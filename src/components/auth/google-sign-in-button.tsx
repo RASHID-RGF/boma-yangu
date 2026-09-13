@@ -66,7 +66,10 @@ export function GoogleSignInButton({
   className = '',
 }: GoogleSignInButtonProps) {
   const [loading, setLoading] = useState(false);
-  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  const clientId =
+    process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+    process.env.GOOGLE_CLIENT_ID ||
+    '';
 
   useEffect(() => {
     if (!clientId || typeof window === 'undefined') {
@@ -87,8 +90,6 @@ export function GoogleSignInButton({
             setLoading(true);
             try {
               await onSuccess(response.credential);
-              // After a successful credential exchange, reload the app so the
-              // server session cookie is picked up by the client auth provider.
               window.location.href = '/dashboard';
             } catch (error) {
               const message = error instanceof Error ? error.message : 'Google sign-in failed';
@@ -136,18 +137,9 @@ export function GoogleSignInButton({
     document.head.appendChild(script);
   }, [clientId, onError, onSuccess]);
 
-  if (!clientId) {
-    console.warn('Google Sign-In not configured: NEXT_PUBLIC_GOOGLE_CLIENT_ID is missing');
-    return null;
-  }
-
   const handleClick = () => {
-    if (!window.google?.accounts?.id) {
-      onError?.('Google sign-in is not available right now');
-      return;
-    }
-
-    window.google.accounts.id.prompt();
+    setLoading(true);
+    window.location.href = '/api/auth/google/signin';
   };
 
   return (

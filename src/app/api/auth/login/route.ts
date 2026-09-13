@@ -1,21 +1,40 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { createToken, verifyPassword, setSessionCookie } from '@/lib/auth/jwt';
+import { createToken, setSessionCookie } from '@/lib/auth/jwt';
+import { verifyPassword } from '@/lib/auth/password';
 import { loginSchema } from '@/lib/utils/validation';
 import type { UserRole } from '@/types';
+import type { Prisma } from '@prisma/client';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const validated = loginSchema.parse(body);
 
-    const user = await prisma.user.findUnique({
-      where: { email: validated.email },
+    // Look up by email or phone so a landlord-onboarded tenant who signed up
+    // with only a phone (no email) can still log in.
+    const orConditions: Prisma.UserWhereInput[] = [];
+    if (validated.email) {
+      orConditions.push({ email: { equals: validated.email, mode: 'insensitive' } });
+    }
+    if (validated.phone) {
+      orConditions.push({ phone: validated.phone });
+    }
+
+    if (orConditions.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Enter your email or phone number' },
+        { status: 400 }
+      );
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { OR: orConditions },
     });
 
     if (!user) {
       return NextResponse.json(
-        { success: false, error: 'Invalid email or password' },
+        { success: false, error: 'Invalid email, phone or password' },
         { status: 401 }
       );
     }
@@ -36,6 +55,19 @@ export async function POST(request: Request) {
     });
 
     setSessionCookie(token);
+
+    // Self-heal: if a landlord added this person as a tenant (with a
+    // pre-created Tenant record) before they ever signed in, link the record
+    // now so My Room and payments work immediately instead of waiting for the
+    // first page load to trigger ensureTenantRecord.
+    if (user.role === 'TENANT') {
+      try {
+        const { ensureTenantRecord } = await import('@/lib/auth/tenant-scope');
+        await ensureTenantRecord(user.id);
+      } catch (linkError) {
+        console.error('Failed to link tenant profile on login:', linkError);
+      }
+    }
 
     // Reflect the login in MongoDB: update lastLoginAt and log a LoginRecord.
     // Best-effort: never let telemetry failure turn a successful login into an error.
