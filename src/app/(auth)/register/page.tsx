@@ -5,6 +5,7 @@ import { AuthLayout } from '@/components/layout/auth-layout';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { GoogleSignInButton } from '@/components/auth/google-sign-in-button';
+import toast from 'react-hot-toast';
 
 function GoogleLogo({ className = 'w-5 h-5' }: { className?: string }) {
   return (
@@ -45,15 +46,12 @@ export default function RegisterPage() {
     return null;
   }
 
-  return (
-    <AuthLayout title="Create Account" subtitle="Start managing your properties today">
+  return (    <AuthLayout title="Create Account" subtitle="Start managing your properties today">
       <div className="space-y-6">
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-          <p className="text-sm text-gray-600">
-            <strong>Sign up with Google</strong> to automatically create your account.
-            Your name and email will be imported from Google.
-          </p>
-        </div>
+
+        <p className="text-sm text-gray-500 text-center mb-4">
+          Sign up with Google to start managing your properties
+        </p>
 
         <GoogleSignInButton
           label="Sign up with Google"
@@ -68,6 +66,11 @@ export default function RegisterPage() {
             if (!res.ok) {
               const data = await res.json().catch(() => ({}));
               throw new Error((data as { error?: string }).error || 'Google sign-in failed');
+            }
+          }}
+          onError={(message) => {
+            if (message) {
+              toast.error(message);
             }
           }}
         />

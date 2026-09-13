@@ -230,12 +230,9 @@ export default function LandingPage() {
                 >
                   Sign In
                 </Button>
-              </Link>
-              <Link href="/register">
-                <button className="btn-gold rounded-lg px-5 py-2.5 text-sm flex items-center gap-2">
+              </Link>              <Link href="/register" className="btn-gold rounded-lg px-5 py-2.5 text-sm flex items-center gap-2">
                   Get Started <ArrowRight className="w-4 h-4" />
-                </button>
-              </Link>
+                </Link>
             </div>
           </div>
         </div>
@@ -275,16 +272,11 @@ export default function LandingPage() {
           </p>
 
           {/* CTA Buttons */}
-          <div className="flex items-center justify-center gap-4 flex-wrap">
-            <Link href="/register">
-              <button className="btn-gold rounded-xl px-8 py-4 text-base md:text-lg flex items-center gap-2">
-                Start Free Trial <ArrowRight className="w-5 h-5" />
-              </button>
+          <div className="flex items-center justify-center gap-4 flex-wrap">            <Link href="/register" className="btn-gold rounded-xl px-8 py-4 text-base md:text-lg flex items-center gap-2">
+              Start Free Trial <ArrowRight className="w-5 h-5" />
             </Link>
-            <Link href="#features">
-              <button className="btn-gold-outline rounded-xl px-8 py-4 text-base md:text-lg">
-                Learn More
-              </button>
+            <Link href="/features" className="btn-gold-outline rounded-xl px-8 py-4 text-base md:text-lg">
+              Learn More
             </Link>
           </div>
 
@@ -378,16 +370,12 @@ export default function LandingPage() {
                 Start your free trial today — no credit card required.
               </p>
               <div className="flex items-center justify-center gap-4 flex-wrap">
-                <Link href="/register">
-                  <button className="btn-gold rounded-xl px-8 py-4 text-base md:text-lg flex items-center gap-2">
+                <Link href="/register" className="btn-gold rounded-xl px-8 py-4 text-base md:text-lg flex items-center gap-2">
                     Get Started Free <ArrowRight className="w-5 h-5" />
-                  </button>
-                </Link>
-                <Link href="/login">
-                  <button className="btn-gold-outline rounded-xl px-8 py-4 text-base md:text-lg">
+                  </Link>
+                  <Link href="/login" className="btn-gold-outline rounded-xl px-8 py-4 text-base md:text-lg">
                     Sign In
-                  </button>
-                </Link>
+                  </Link>
               </div>
               <div className="mt-8 flex items-center justify-center gap-6 text-[#585858] text-xs">
                 <span className="flex items-center gap-1.5">

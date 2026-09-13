@@ -3,7 +3,7 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { canAccessRoute, getRoleHome } from '@/lib/auth/rbac';
 import type { UserRole } from '@/types';
 
-const PUBLIC_ROUTES = ['/', '/login', '/register', '/forgot-password'];
+const PUBLIC_ROUTES = ['/', '/home'];
 const API_PUBLIC_ROUTES = [
   '/api/auth/callback',
   '/api/payments/palpluss-callback',
@@ -29,7 +29,7 @@ export async function middleware(request: NextRequest) {
 
   if (!token) {
     if (!pathname.startsWith('/api')) {
-      const url = new URL('/login', request.url);
+      const url = new URL('/home', request.url);
       url.searchParams.set('redirect', pathname);
       return NextResponse.redirect(url);
     }
@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
 
   if (!payload) {
     if (!pathname.startsWith('/api')) {
-      const url = new URL('/login', request.url);
+      const url = new URL('/home', request.url);
       url.searchParams.set('redirect', pathname);
       return NextResponse.redirect(url);
     }
