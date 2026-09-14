@@ -14,7 +14,7 @@ import { isVacantUnitStatus, normalizeUnitStatus } from '@/lib/utils/room-assign
 import { UNIT_STATUS_LABELS, UserRole } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 import {
-  DoorOpen, Search, Home, Users, Landmark, RefreshCw, Inbox, UserPlus, Phone, Mail, Plus,
+  DoorOpen, Search, Home, Users, Landmark, RefreshCw, Inbox, UserPlus, Phone, Mail, Plus, Wallet,
 } from 'lucide-react';
 
 interface UnitRow {
@@ -28,6 +28,10 @@ interface UnitRow {
     id: string;
     name: string;
     owner?: { firstName: string; lastName: string } | null;
+    mpesaPaybill?: string | null;
+    mpesaAccountName?: string | null;
+    mpesaTillNumber?: string | null;
+    mpesaPhone?: string | null;
   } | null;
   tenants?: { id: string; firstName: string; lastName: string }[] | null;
 }
@@ -44,6 +48,10 @@ interface TenantOption {
 interface PropertyOption {
   id: string;
   name: string;
+  mpesaPaybill?: string | null;
+  mpesaAccountName?: string | null;
+  mpesaTillNumber?: string | null;
+  mpesaPhone?: string | null;
 }
 
 const STATUS_OPTIONS = [
@@ -70,12 +78,34 @@ export default function UnitsPage() {
   const [assignTenants, setAssignTenants] = useState<TenantOption[]>([]);
   const [assigning, setAssigning] = useState(false);
   const [assignForm, setAssignForm] = useState({ tenantId: '', email: '', phone: '', name: '' });
+  // M-Pesa collection details sent along with the allocation. Prefilled from
+  // the property so the landlord can adjust or confirm before sending.
+  const [assignPay, setAssignPay] = useState({
+    mpesaPaybill: '',
+    mpesaAccountName: '',
+    mpesaTillNumber: '',
+    mpesaPhone: '',
+  });
 
   // Add-unit modal (create a vacant room on an existing property)
   const [addOpen, setAddOpen] = useState(false);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
   const [adding, setAdding] = useState(false);
-  const [addForm, setAddForm] = useState({ propertyId: '', unitNumber: '', monthlyRent: '', depositAmount: '' });
+  const [addForm, setAddForm] = useState({
+    propertyId: '',
+    unitNumber: '',
+    monthlyRent: '',
+    depositAmount: '',
+    // Landlord's M-Pesa collection details for this room's property.
+    // Paybill and till are both supported — the landlord picks whichever
+    // they want rent to land in, and the system registers it as their
+    // PalPluss channel.
+    mpesaPaybill: '',
+    mpesaAccountName: '',
+    mpesaTillNumber: '',
+    mpesaPhone: '',
+  });
+
 
   const fetchUnits = useCallback(async () => {
     setLoading(true);
@@ -96,7 +126,20 @@ export default function UnitsPage() {
 
   // Open the Add Unit modal: load the landlord's properties to attach the room to.
   const openAddUnit = useCallback(async () => {
-    setAddForm({ propertyId: '', unitNumber: '', monthlyRent: '', depositAmount: '' });
+    setAddForm({
+      propertyId: '',
+      unitNumber: '',
+      monthlyRent: '',
+      depositAmount: '',
+      // Landlord's M-Pesa collection details for this room's property.
+      // Paybill and till are both supported — the landlord picks whichever
+      // they want rent to land in, and the system registers it as their
+      // PalPluss channel.
+      mpesaPaybill: '',
+      mpesaAccountName: '',
+      mpesaTillNumber: '',
+      mpesaPhone: '',
+    });
     setAddOpen(true);
     try {
       const res = await fetch('/api/properties');
@@ -129,6 +172,10 @@ export default function UnitsPage() {
           unitNumber: addForm.unitNumber.trim(),
           monthlyRent: addForm.monthlyRent === '' ? 0 : Number(addForm.monthlyRent),
           depositAmount: addForm.depositAmount === '' ? 0 : Number(addForm.depositAmount),
+          mpesaPaybill: addForm.mpesaPaybill,
+          mpesaAccountName: addForm.mpesaAccountName,
+          mpesaTillNumber: addForm.mpesaTillNumber,
+          mpesaPhone: addForm.mpesaPhone,
         }),
       });
       const result = await res.json();
@@ -143,10 +190,17 @@ export default function UnitsPage() {
     }
   };
 
-  // Open the assign modal for a room: load tenants who don't have a room yet.
+  // Open the assign modal for a room: load tenants who don't have a room yet
+  // and prefill the payment details from the room's property.
   const openAssignRoom = useCallback(async (unit: UnitRow) => {
     setAssignUnit(unit);
     setAssignForm({ tenantId: '', email: '', phone: '', name: '' });
+    setAssignPay({
+      mpesaPaybill: unit.property?.mpesaPaybill || '',
+      mpesaAccountName: unit.property?.mpesaAccountName || '',
+      mpesaTillNumber: unit.property?.mpesaTillNumber || '',
+      mpesaPhone: unit.property?.mpesaPhone || '',
+    });
     try {
       const res = await fetch('/api/tenants');
       const result = await res.json();
@@ -168,13 +222,21 @@ export default function UnitsPage() {
     }
     setAssigning(true);
     try {
-      const payload = assignForm.tenantId
-        ? { tenantId: assignForm.tenantId }
-        : {
-            email: assignForm.email || undefined,
-            phone: assignForm.phone || undefined,
-            firstName: assignForm.name || undefined,
-          };
+      const payload = {
+        ...(assignForm.tenantId
+          ? { tenantId: assignForm.tenantId }
+          : {
+              email: assignForm.email || undefined,
+              phone: assignForm.phone || undefined,
+              firstName: assignForm.name || undefined,
+            }),
+        // Collection details travel with the allocation so the tenant is told
+        // exactly where rent goes and the STK push is routed correctly.
+        mpesaPaybill: assignPay.mpesaPaybill,
+        mpesaAccountName: assignPay.mpesaAccountName,
+        mpesaTillNumber: assignPay.mpesaTillNumber,
+        mpesaPhone: assignPay.mpesaPhone,
+      };
       const res = await fetch(`/api/units/${assignUnit.id}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -420,6 +482,53 @@ export default function UnitsPage() {
             An email or phone is enough. When the tenant signs in with it, this room appears under
             My Room and they can start paying for it.
           </p>
+
+          {/* Where rent goes — sent to the tenant with the allocation */}
+          <div className="space-y-3 pt-3 border-t border-gray-100">
+            <div>
+              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                <Wallet className="w-4 h-4" />
+                Rent Payment Details
+              </label>
+              <p className="text-xs text-[#646669] mt-1">
+                Sent to the tenant with this allocation — they pay to exactly this paybill/till or
+                number. Tenants just tap Pay and receive an M-Pesa prompt on their phone.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                name="mpesaPaybill"
+                label="M-Pesa Paybill"
+                placeholder="e.g. 123456"
+                value={assignPay.mpesaPaybill}
+                onChange={(e) => setAssignPay((p) => ({ ...p, mpesaPaybill: e.target.value }))}
+              />
+              <Input
+                name="mpesaAccountName"
+                label="Account Name"
+                placeholder="e.g. Green Heights"
+                value={assignPay.mpesaAccountName}
+                onChange={(e) => setAssignPay((p) => ({ ...p, mpesaAccountName: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                name="mpesaTillNumber"
+                label="Till Number"
+                placeholder="e.g. 654321"
+                value={assignPay.mpesaTillNumber}
+                onChange={(e) => setAssignPay((p) => ({ ...p, mpesaTillNumber: e.target.value }))}
+              />
+              <Input
+                name="mpesaPhone"
+                label="Phone Number"
+                placeholder="e.g. 0712345678"
+                value={assignPay.mpesaPhone}
+                onChange={(e) => setAssignPay((p) => ({ ...p, mpesaPhone: e.target.value }))}
+              />
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setAssignUnit(null)}>
               Cancel
@@ -474,11 +583,61 @@ export default function UnitsPage() {
               value={addForm.depositAmount}
               onChange={(e) => setAddForm((f) => ({ ...f, depositAmount: e.target.value }))}
             />
-          </div>
-          <p className="text-xs text-[#646669]">
+          </div>            <p className="text-xs text-[#646669]">
             The room is created as vacant and appears in the Units section, ready to allocate to a
             tenant. You can leave rent at 0 and set it later.
           </p>
+
+          {/* Landlord's M-Pesa collection details for this room's property. When
+              supplied here, they are applied to the property AND registered as this
+              landlord's PalPluss channel so the tenant's STK push reaches their
+              own till or paybill. */}
+          <div className="space-y-3 pt-3 border-t border-gray-100">
+            <div>
+              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                <Wallet className="w-4 h-4" />
+                Your Rent Collection Details (optional)
+              </label>
+              <p className="text-xs text-[#646669] mt-1">
+                Tenants will pay rent to exactly these details. If you enter a till or paybill here,
+                the system registers it as your payment channel so the STK push money goes to your
+                own account, not a shared pot.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                name="mpesaPaybill"
+                label="M-Pesa Paybill"
+                placeholder="e.g. 123456"
+                value={addForm.mpesaPaybill}
+                onChange={(e) => setAddForm((f) => ({ ...f, mpesaPaybill: e.target.value }))}
+              />
+              <Input
+                name="mpesaAccountName"
+                label="Account Name"
+                placeholder="e.g. Green Heights"
+                value={addForm.mpesaAccountName}
+                onChange={(e) => setAddForm((f) => ({ ...f, mpesaAccountName: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                name="mpesaTillNumber"
+                label="M-Pesa Till Number"
+                placeholder="e.g. 654321"
+                value={addForm.mpesaTillNumber}
+                onChange={(e) => setAddForm((f) => ({ ...f, mpesaTillNumber: e.target.value }))}
+              />
+              <Input
+                name="mpesaPhone"
+                label="Phone Number"
+                placeholder="e.g. 0712345678"
+                value={addForm.mpesaPhone}
+                onChange={(e) => setAddForm((f) => ({ ...f, mpesaPhone: e.target.value }))}
+              />
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>
               Cancel

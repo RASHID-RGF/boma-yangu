@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { findMatchingTenantUser, normalizeEmail } from '@/lib/auth/tenant-scope';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
+import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 
@@ -35,6 +36,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const body = await request.json().catch(() => ({}));
     const validated = updateTenantSchema.parse(body);
+    // Payment-destination text appended to the tenant's allocation notification
+    // (set when a new unit is resolved below, '' otherwise).
+    let payLinesSuffix = '';
 
     const tenant = await prisma.tenant.findUnique({
       where: { id: params.id },
@@ -60,6 +64,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
           tenants: { select: { id: true, firstName: true, lastName: true, isActive: true } },
         },
       });
+      // Collection details for the tenant's notification (property is included
+      // in full above, so the mpesa fields come along automatically).
+      const payLines = formatPaymentInstructions(newUnit?.property ?? null);
+      payLinesSuffix =
+        payLines.length > 0
+          ? ` Rent is paid to: ${payLines.join('; ')}. The M-Pesa prompt goes to your phone — just enter your PIN.`
+          : '';
       if (!newUnit) {
         return NextResponse.json({ success: false, error: 'Unit not found' }, { status: 404 });
       }
@@ -183,7 +194,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
             type: 'ANNOUNCEMENT',
             title: 'Unit assigned',
             message: newUnit
-              ? `You have been assigned unit ${newUnit.unitNumber} at ${newUnitProperty?.name || 'the estate'}. Open "My Room" to see it and pay rent for it.`
+              ? `You have been assigned unit ${newUnit.unitNumber} at ${newUnitProperty?.name || 'the estate'}. Open "My Room" to see it and pay rent for it.${payLinesSuffix}`
               : 'Your unit assignment was removed. Contact management if this is unexpected.',
           },
         });

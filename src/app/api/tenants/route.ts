@@ -9,6 +9,7 @@ import {
 } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
+import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 
@@ -136,6 +137,9 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const validated = createTenantSchema.parse(body);
+    // Payment-destination text appended to the tenant's allocation notification
+    // (set when a room is being allocated below, '' otherwise).
+    let payLinesSuffix = '';
 
     // Normalize once so the stored email/phone matches what the tenant will
     // sign in with (email matching is case-insensitive).
@@ -174,7 +178,15 @@ export async function POST(request: Request) {
       const found = await prisma.unit.findUnique({
         where: { id: validated.unitId },
         include: {
-          property: { select: { name: true } },
+          property: {
+            select: {
+              name: true,
+              mpesaPaybill: true,
+              mpesaAccountName: true,
+              mpesaTillNumber: true,
+              mpesaPhone: true,
+            },
+          },
           tenants: { select: { id: true, firstName: true, lastName: true, isActive: true } },
         },
       });
@@ -207,6 +219,13 @@ export async function POST(request: Request) {
         propertyId: found.propertyId,
         property: found.property,
       };
+
+      // Collection details shown in the tenant's allocation notification.
+      const payLines = formatPaymentInstructions(found.property);
+      payLinesSuffix =
+        payLines.length > 0
+          ? ` Rent is paid to: ${payLines.join('; ')}. The M-Pesa prompt goes to the tenant's phone — they just enter their PIN.`
+          : '';
     }
 
     // Link to an existing login account, if the person has already registered.
@@ -258,7 +277,7 @@ export async function POST(request: Request) {
             userId: linkedUser.id,
             type: 'ANNOUNCEMENT',
             title: 'You have been allocated a room',
-            message: `${roomText} has been allocated to you. Open "My Room" to see it and pay your rent.`,
+            message: `${roomText} has been allocated to you. Open "My Room" to see it and pay your rent.${payLinesSuffix}`, 
           },
         });
       }

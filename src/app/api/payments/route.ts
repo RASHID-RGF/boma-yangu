@@ -7,6 +7,7 @@ import { isManagementRole } from '@/lib/auth/rbac';
 import { stkPush as palplussStkPush, PalPlussApiError } from '@/lib/payments/palpluss';
 import { stkPush as darajaStkPush, isDarajaConfigured } from '@/lib/payments/daraja';
 import { finalizePayment, isPalplussConfigured, simulateTransactionCode } from '@/lib/payments/finalize';
+import { resolveChannelId } from '@/lib/payments/palpluss';
 import { z } from 'zod';
 
 /**
@@ -353,7 +354,18 @@ export async function POST(request: Request) {
 
       if (isPalplussConfigured()) {
         try {
-          const stk = await palplussStkPush(phone, amount, accountReference, 'Rent payment');
+          // Route the rent to the property's own PalPluss channel (the
+          // landlord's till/paybill) — multi-landlord collection. Falls back
+          // to the platform default channel when the property has none.
+          const property = unitId
+            ? await prisma.unit.findUnique({
+                where: { id: unitId },
+                select: { property: { select: { palplussChannelId: true } } },
+              })
+            : null;
+          const channelId = resolveChannelId(property?.property?.palplussChannelId);
+
+          const stk = await palplussStkPush(phone, amount, accountReference, 'Rent payment', channelId);
           await prisma.payment.update({
             where: { id: payment.id },
             data: { checkoutRequestId: stk.transactionId },

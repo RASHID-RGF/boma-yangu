@@ -5,6 +5,7 @@ import { isManagementRole } from '@/lib/auth/rbac';
 import { findMatchingTenantUser, normalizeEmail, normalizePhone } from '@/lib/auth/tenant-scope';
 import { deriveNameFromEmail } from '@/lib/utils/contact';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
+import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { z } from 'zod';
 import type { Prisma, Tenant } from '@prisma/client';
 
@@ -16,6 +17,13 @@ const assignRoomSchema = z.object({
   phone: z.string().optional().nullable(),
   firstName: z.string().optional().nullable(),
   lastName: z.string().optional().nullable(),
+  // M-Pesa collection details for the property, sent along with the allocation
+  // so the tenant immediately knows where rent goes — and the STK push is
+  // routed to the landlord's paybill/till. Empty strings mean "leave unchanged".
+  mpesaPaybill: z.string().trim().optional(),
+  mpesaAccountName: z.string().trim().optional(),
+  mpesaTillNumber: z.string().trim().optional(),
+  mpesaPhone: z.string().trim().optional(),
 });
 
 /**
@@ -44,7 +52,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const unit = await prisma.unit.findUnique({
       where: { id: params.id },
       include: {
-        property: { select: { id: true, name: true, ownerId: true } },
+        property: {
+          select: {
+            id: true,
+            name: true,
+            ownerId: true,
+            mpesaPaybill: true,
+            mpesaAccountName: true,
+            mpesaTillNumber: true,
+            mpesaPhone: true,
+          },
+        },
         tenants: { select: { id: true, firstName: true, lastName: true, isActive: true } },
       },
     });
@@ -141,6 +159,40 @@ export async function POST(request: Request, { params }: { params: { id: string 
       if (linkedUser) userId = linkedUser.id;
     }
 
+    // Persist any collection details sent with the allocation, so the STK
+    // push is routed to the landlord's paybill/till and the tenant sees exactly
+    // where their rent goes.
+    const paymentPatch: Prisma.PropertyUpdateInput = {};
+    if (validated.mpesaPaybill !== undefined)
+      paymentPatch.mpesaPaybill = validated.mpesaPaybill || null;
+    if (validated.mpesaAccountName !== undefined)
+      paymentPatch.mpesaAccountName = validated.mpesaAccountName || null;
+    if (validated.mpesaTillNumber !== undefined)
+      paymentPatch.mpesaTillNumber = validated.mpesaTillNumber || null;
+    if (validated.mpesaPhone !== undefined)
+      paymentPatch.mpesaPhone = validated.mpesaPhone || null;
+    if (Object.keys(paymentPatch).length > 0 && unit.property) {
+      await prisma.property.update({ where: { id: unit.property.id }, data: paymentPatch });
+    }
+
+    // Effective collection details (existing + any just updated) for the
+    // tenant-facing notification.
+    const paymentDetails = {
+      mpesaPaybill:
+        validated.mpesaPaybill !== undefined ? validated.mpesaPaybill : unit.property?.mpesaPaybill,
+      mpesaAccountName:
+        validated.mpesaAccountName !== undefined
+          ? validated.mpesaAccountName
+          : unit.property?.mpesaAccountName,
+      mpesaTillNumber:
+        validated.mpesaTillNumber !== undefined
+          ? validated.mpesaTillNumber
+          : unit.property?.mpesaTillNumber,
+      mpesaPhone:
+        validated.mpesaPhone !== undefined ? validated.mpesaPhone : unit.property?.mpesaPhone,
+    };
+    const payLines = formatPaymentInstructions(paymentDetails);
+
     const assigned = await prisma.$transaction(async (tx) => {
       const updated = await tx.tenant.update({
         where: { id: tenant!.id },
@@ -175,7 +227,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
             userId,
             type: 'ANNOUNCEMENT',
             title: createdNew ? 'You have been allocated a room' : 'Room allocated',
-            message: `${roomText} has been allocated to you. Open "My Room" to see it and pay your rent.`,
+            message:
+              `${roomText} has been allocated to you. Open "My Room" to see it and pay your rent.` +
+              (payLines.length > 0
+                ? ` Rent is paid to: ${payLines.join('; ')}. When you tap Pay, the M-Pesa prompt is sent to your phone — just enter your PIN.`
+                : ''),
           },
         });
       }

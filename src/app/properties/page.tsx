@@ -1,17 +1,21 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge, STATUS_VARIANTS } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { Modal } from '@/components/ui/modal';
 import { formatCurrency } from '@/lib/utils/format';
 import { PropertyType, PROPERTY_TYPE_LABELS } from '@/types';
+import { useAuth } from '@/hooks/useAuth';
+import { UserRole } from '@/types';
 import {
   Building2, Plus, Search, MapPin, Home,
-  Users, MoreHorizontal, Inbox,
+  Users, MoreHorizontal, Inbox, Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -26,6 +30,10 @@ interface PropertyRow {
   occupiedUnits: number;
   monthlyIncome: number;
   description?: string | null;
+  mpesaPaybill?: string | null;
+  mpesaTillNumber?: string | null;
+  mpesaAccountName?: string | null;
+  palplussChannelId?: string | null;
 }
 
 const PROPERTY_TYPE_OPTIONS = [
@@ -34,11 +42,25 @@ const PROPERTY_TYPE_OPTIONS = [
 ];
 
 export default function PropertiesPage() {
+  const { user } = useAuth();
+  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
   const [properties, setProperties] = useState<PropertyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+
+  // Rent-collection modal: register this property's own till/paybill so rent
+  // lands in the landlord's own account (multi-landlord routing).
+  const [channelOpen, setChannelOpen] = useState(false);
+  const [channelProperty, setChannelProperty] = useState<PropertyRow | null>(null);
+  const [savingChannel, setSavingChannel] = useState(false);
+  const [channelForm, setChannelForm] = useState({
+    type: 'TILL',
+    shortcode: '',
+    accountName: '',
+    accountNumber: '',
+  });
 
   const fetchProperties = useCallback(async () => {
     setLoading(true);
@@ -56,6 +78,50 @@ export default function PropertiesPage() {
   }, []);
 
   useEffect(() => { fetchProperties(); }, [fetchProperties]);
+
+  // Open the Rent Collection modal prefilled from the property's saved details.
+  const openChannelModal = (property: PropertyRow) => {
+    setChannelProperty(property);
+    setChannelForm({
+      type: property.mpesaTillNumber ? 'TILL' : 'PAYBILL',
+      shortcode: property.mpesaTillNumber || property.mpesaPaybill || '',
+      accountName: property.mpesaAccountName || property.name,
+      accountNumber: '',
+    });
+    setChannelOpen(true);
+  };
+
+  // Register the till/paybill as a PalPluss channel for this property.
+  const handleSaveChannel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!channelProperty) return;
+    setSavingChannel(true);
+    try {
+      const res = await fetch(`/api/properties/${channelProperty.id}/channel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: channelForm.type,
+          shortcode: channelForm.shortcode.trim(),
+          accountName: channelForm.accountName.trim() || undefined,
+          accountNumber: channelForm.accountNumber.trim() || undefined,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.error || 'Failed to register till/paybill');
+      toast.success(
+        channelForm.type === 'TILL'
+          ? `Rent for ${channelProperty.name} will now be collected to till ${channelForm.shortcode.trim()}`
+          : `Rent for ${channelProperty.name} will now be collected to paybill ${channelForm.shortcode.trim()}`
+      );
+      setChannelOpen(false);
+      await fetchProperties();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to register till/paybill');
+    } finally {
+      setSavingChannel(false);
+    }
+  };
 
   const filtered = properties.filter((p) => {
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -153,9 +219,23 @@ export default function PropertiesPage() {
                       <span className="text-sm font-semibold text-emerald-600">
                         {formatCurrency(property.monthlyIncome)}/mo
                       </span>
-                      <button className="p-1.5 rounded-lg hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <MoreHorizontal className="w-4 h-4 text-gray-400" />
-                      </button>
+                      {isManagement && (
+                        <Button
+                          size="sm"
+                          variant={property.palplussChannelId ? 'outline' : 'ghost'}
+                          className={`gap-1.5 ${property.palplussChannelId ? 'text-emerald-600 border-emerald-200' : 'text-gray-500'}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openChannelModal(property);
+                          }}
+                        >
+                          <Wallet className="w-3.5 h-3.5" />
+                          {property.palplussChannelId
+                            ? `Till/Paybill: ${property.mpesaTillNumber || property.mpesaPaybill}`
+                            : 'Set Rent Collection'}
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -164,6 +244,64 @@ export default function PropertiesPage() {
           </div>
         )}
       </div>
+
+      {/* Rent Collection Modal — register this property's till/paybill */}
+      <Modal
+        open={channelOpen}
+        onClose={() => setChannelOpen(false)}
+        title="Rent Collection"
+        subtitle={channelProperty ? `${channelProperty.name} — where should rent land?` : ''}
+      >
+        <form onSubmit={handleSaveChannel} className="space-y-4">
+          <Select
+            name="type"
+            label="Collection Type"
+            options={[
+              { value: 'TILL', label: 'Buy Goods Till' },
+              { value: 'PAYBILL', label: 'Paybill' },
+            ]}
+            value={channelForm.type}
+            onChange={(e) => setChannelForm((f) => ({ ...f, type: e.target.value }))}
+          />
+          <Input
+            name="shortcode"
+            label={channelForm.type === 'TILL' ? 'Till Number' : 'Paybill Number'}
+            placeholder={channelForm.type === 'TILL' ? 'e.g. 123456' : 'e.g. 123456'}
+            required
+            value={channelForm.shortcode}
+            onChange={(e) => setChannelForm((f) => ({ ...f, shortcode: e.target.value }))}
+            icon={<Wallet className="w-4 h-4" />}
+          />
+          {channelForm.type === 'PAYBILL' && (
+            <Input
+              name="accountNumber"
+              label="Account Number (optional)"
+              placeholder="e.g. unit reference — blank = room name"
+              value={channelForm.accountNumber}
+              onChange={(e) => setChannelForm((f) => ({ ...f, accountNumber: e.target.value }))}
+            />
+          )}
+          <Input
+            name="accountName"
+            label="Account Name"
+            placeholder="e.g. Green Heights"
+            value={channelForm.accountName}
+            onChange={(e) => setChannelForm((f) => ({ ...f, accountName: e.target.value }))}
+          />
+          <p className="text-xs text-[#646669]">
+            Every rent payment for this property is pushed to THIS till/paybill — each landlord
+            collects into their own account. Tenants just tap Pay and enter their M-Pesa PIN.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setChannelOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={savingChannel}>
+              Save Collection Details
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </DashboardLayout>
   );
 }

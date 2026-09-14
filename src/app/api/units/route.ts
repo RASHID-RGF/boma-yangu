@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { OPERATIONS_ROLES, isManagementRole } from '@/lib/auth/rbac';
+import { isPalplussConfigured } from '@/lib/payments/finalize';
+import { getPalpluss, PalPlussApiError } from '@/lib/payments/palpluss';
 import { z } from 'zod';
 
 export async function GET() {
@@ -39,6 +41,10 @@ export async function GET() {
             ownerId: true,
             managerId: true,
             owner: { select: { firstName: true, lastName: true } },
+            mpesaPaybill: true,
+            mpesaAccountName: true,
+            mpesaTillNumber: true,
+            mpesaPhone: true,
           },
         },
         tenants: {
@@ -87,6 +93,14 @@ const createUnitSchema = z.object({
   bedrooms: z.number().min(0).default(1),
   bathrooms: z.number().min(0).default(1),
   size: z.number().optional(),
+  // Landlord's M-Pesa collection details for this unit's property. When
+  // supplied, they are applied to the property AND registered as this
+  // landlord's PalPluss payment channel so STK pushes for this property
+  // reach the landlord's own till/paybill.
+  mpesaPaybill: z.string().trim().optional().or(z.literal('')),
+  mpesaAccountName: z.string().trim().optional().or(z.literal('')),
+  mpesaTillNumber: z.string().trim().optional().or(z.literal('')),
+  mpesaPhone: z.string().trim().optional().or(z.literal('')),
 });
 
 export async function POST(request: Request) {
@@ -149,6 +163,42 @@ export async function POST(request: Request) {
         where: { id: validated.propertyId },
         data: { totalUnits: { increment: 1 } },
       });
+
+      // Best-effort: if the landlord supplied any M-Pesa collection details with
+      // this room, surface them on the property AND register a dedicated PalPluss
+      // payment channel so this landlord's own till/paybill receives the STK push.
+      // Non-critical — the room is created even when channel registration fails.
+      try {
+        const tillNumber =
+          validated.mpesaTillNumber && validated.mpesaTillNumber.trim();
+        const paybillNumber =
+          validated.mpesaPaybill && validated.mpesaPaybill.trim();
+        const shortcode = tillNumber || paybillNumber;
+        if (shortcode && isPalplussConfigured()) {
+          const channelType = tillNumber ? 'TILL' : 'PAYBILL';
+          const client = getPalpluss();
+          const channel = await client.createChannel({
+            type: channelType,
+            shortcode,
+            name: validated.mpesaAccountName?.trim() || validated.unitNumber,
+            accountNumber: undefined,
+            isDefault: false,
+          });
+
+          await tx.property.update({
+            where: { id: validated.propertyId },
+            data: {
+              palplussChannelId: channel.id,
+              mpesaTillNumber: channelType === 'TILL' ? shortcode : undefined,
+              mpesaPaybill: channelType === 'PAYBILL' ? shortcode : undefined,
+              mpesaAccountName: validated.mpesaAccountName?.trim() || undefined,
+            },
+          });
+        }
+      } catch (channelError) {
+        console.warn('Best-effort unit till/paybill channel registration failed:', channelError);
+      }
+
 
       return created;
     });

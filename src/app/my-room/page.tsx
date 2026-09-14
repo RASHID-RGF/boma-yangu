@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge, STATUS_VARIANTS } from '@/components/ui/badge';
@@ -12,8 +13,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   DoorOpen, Home, Landmark, Phone, Mail, Wallet, Plus, RefreshCw,
-  Inbox, CheckCircle2, UserCog,
+  Inbox, CheckCircle2, UserCog, Smartphone,
 } from 'lucide-react';
+import {
+  hasPaymentDetails,
+  formatPaymentInstructions,
+} from '@/lib/utils/payment-details';
 
 interface Person {
   id: string;
@@ -32,9 +37,7 @@ interface RoomPayment {
   transactionCode?: string | null;
   receiptNumber?: string | null;
   paymentDate: string;
-}
-
-interface MyRoomData {
+}interface MyRoomData {
   tenant: { id: string; firstName: string; lastName: string; phone?: string | null; email?: string | null };
   unit: {
     id: string;
@@ -54,6 +57,12 @@ interface MyRoomData {
     internetCharge: number;
     parkingCharge: number;
     property?: { id: string; name: string; address: string; city: string; state?: string | null } | null;
+  } | null;
+  paymentDetails?: {
+    mpesaPaybill?: string | null;
+    mpesaAccountName?: string | null;
+    mpesaTillNumber?: string | null;
+    mpesaPhone?: string | null;
   } | null;
   landlord: Person | null;
   caretakers: Person[];
@@ -83,6 +92,7 @@ function monthlyCharges(unit: NonNullable<MyRoomData['unit']>) {
 
 export default function MyRoomPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const isTenant = user?.role === UserRole.TENANT;
   const [data, setData] = useState<MyRoomData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,23 +260,61 @@ export default function MyRoomPage() {
                       ? 'Nothing recorded for this room yet — it starts at KES 0.'
                       : 'Balance on your room.'}
                   </p>
-                  <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-gray-500">Total Paid</p>
-                      <p className="text-sm font-semibold text-emerald-600">
-                        {formatCurrency(data!.summary.totalPaid)}
-                      </p>
+                  <div className="mt-5 pt-4 border-t border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-gray-500">Total Paid</p>
+                        <p className="text-sm font-semibold text-emerald-600">
+                          {formatCurrency(data!.summary.totalPaid)}
+                        </p>
+                      </div>
                     </div>
-                    <Link href="/payments">
-                      <Button size="sm" className="gap-1.5">
-                        <Wallet className="w-3.5 h-3.5" />
-                        Pay Rent
+                    {hasPaymentDetails(data!.paymentDetails) ? (
+                      <Button size="sm" className="gap-1.5 w-full mt-4" onClick={() => router.push('/payments')}>
+                        <Smartphone className="w-3.5 h-3.5" />
+                        Pay — Get M-Pesa Prompt
                       </Button>
-                    </Link>
+                    ) : (
+                      <Link href="/payments" className="block">
+                        <Button size="sm" className="gap-1.5 w-full mt-4">
+                          <Wallet className="w-3.5 h-3.5" />
+                          Pay Rent
+                        </Button>
+                      </Link>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             </div>
+
+            {/* How to Pay — the landlord's exact collection details */}
+            {hasPaymentDetails(data!.paymentDetails) && (
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-xl bg-emerald-50">
+                      <Smartphone className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-gray-900">How to Pay Rent</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Your landlord receives rent at exactly these details. When you tap Pay, the
+                        M-Pesa prompt is sent to your phone — just enter your PIN. No paybill entry
+                        needed.
+                      </p>
+                      <ul className="mt-3 space-y-1">
+                        {formatPaymentInstructions(data!.paymentDetails).map((line) => (
+                          <li key={line} className="text-sm text-gray-700 flex items-center gap-2">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            {line}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Landlord + caretaker */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

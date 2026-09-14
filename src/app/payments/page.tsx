@@ -14,8 +14,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   Wallet, Search, CheckCircle2, Clock, RefreshCw, Inbox, Plus, Receipt,
-  Send, Phone, CreditCard, Banknote,
+  Send, Phone, CreditCard, Banknote, Smartphone,
 } from 'lucide-react';
+import {
+  hasPaymentDetails,
+  formatPaymentInstructions,
+} from '@/lib/utils/payment-details';
 
 interface PaymentRow {
   id: string;
@@ -46,6 +50,13 @@ interface TenantOption {
   firstName: string;
   lastName: string;
   unit?: { unitNumber: string; property?: { name: string } } | null;
+}
+
+interface PaymentDestination {
+  mpesaPaybill?: string | null;
+  mpesaAccountName?: string | null;
+  mpesaTillNumber?: string | null;
+  mpesaPhone?: string | null;
 }
 
 const METHOD_LABELS: Record<string, string> = {
@@ -83,6 +94,23 @@ export default function PaymentsPage() {
   const [invoices, setInvoices] = useState<InvoiceOption[]>([]);
   const [paying, setPaying] = useState(false);
   const [payForm, setPayForm] = useState({ invoiceId: '', amount: '', phone: '' });
+  // Where the tenant's rent goes (the landlord's collection details).
+  const [destination, setDestination] = useState<PaymentDestination | null>(null);
+
+  // Tenants load their room's payment destination so the pay modal shows
+  // exactly the paybill/till/number the landlord configured.
+  useEffect(() => {
+    if (user?.role !== UserRole.TENANT) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/my-room');
+        const result = await res.json();
+        if (res.ok && result.success) setDestination(result.data?.paymentDetails ?? null);
+      } catch {
+        // Destination banner is optional — the pay flow works without it.
+      }
+    })();
+  }, [user?.role]);
 
   // Management "Record Payment" modal
   const [recordOpen, setRecordOpen] = useState(false);
@@ -512,9 +540,21 @@ export default function PaymentsPage() {
             icon={<Phone className="w-4 h-4" />}
             required
           />
+          {hasPaymentDetails(destination) && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+              <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5" />
+                Your payment goes to
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {formatPaymentInstructions(destination).map((line) => (
+                  <li key={line} className="text-xs text-emerald-800">{line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <p className="text-xs text-[#646669]">
-            An M-Pesa STK push will be sent to this number. In demo mode (no PalPluss API key) the
-            payment is recorded instantly with a simulated transaction code.
+            You&apos;ll receive an M-Pesa STK push on this number — just enter your PIN to pay.{PAY_LINK_URL ? '' : ' In demo mode (no PalPluss API key) the payment is recorded instantly with a simulated transaction code.'}
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setPayOpen(false)}>

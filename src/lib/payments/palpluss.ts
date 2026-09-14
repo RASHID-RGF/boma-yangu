@@ -7,8 +7,9 @@ let _palpluss: PalPluss | undefined;
 
 export function getPalpluss(): PalPluss {
   if (!_palpluss) {
+    const apiKey = process.env.PALPLUSS_API_KEY || process.env['PALPLUSS API KEY'];
     _palpluss = new PalPluss({
-      apiKey: process.env.PALPLUSS_API_KEY,
+      apiKey,
       timeout: 30_000,
       autoRetryOnRateLimit: true,
       maxRetries: 3,
@@ -29,9 +30,24 @@ export function getWebhookUrl(): string {
   return `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/payments/palpluss-callback`;
 }
 
-/** Optional payment wallet channel id (see PALPLUSS_CHANNEL_ID). */
+/** Platform default payment wallet channel id (see PALPLUSS_CHANNEL_ID). */
 export function getChannelId(): string | undefined {
-  return process.env.PALPLUSS_CHANNEL_ID || undefined;
+  return process.env.PALPLUSS_CHANNEL_ID || process.env['PALPLUSS CHANNEL ID'] || undefined;
+}
+
+/**
+ * Resolves the PalPluss channel for a rent payment. Multi-landlord platform:
+ * each property may carry its own channel (the landlord's own till/paybill,
+ * registered via /api/properties/[id]/channel). Falls back to the platform
+ * default channel when the property has none — so payments NEVER fail just
+ * because a landlord hasn't onboarded their till yet.
+ */
+export function resolveChannelId(
+  propertyChannelId?: string | null
+): string | undefined {
+  const own = propertyChannelId?.trim();
+  if (own) return own;
+  return getChannelId();
 }
 
 export interface StkPushResult {
@@ -42,12 +58,15 @@ export interface StkPushResult {
 /**
  * Initiates an STK push via PalPluss. The customer receives an M-Pesa PIN
  * prompt on their phone; the outcome arrives at the PalPluss webhook route.
+ * `channelId` routes the money to a specific landlord's till/paybill — omit
+ * it to use the platform default channel.
  */
 export async function stkPush(
   phoneNumber: string,
   amount: number,
   accountReference: string,
-  transactionDesc: string
+  transactionDesc: string,
+  channelId?: string | null
 ): Promise<StkPushResult> {
   const tx = await getPalpluss().stkPush({
     amount: Math.round(amount),
@@ -55,7 +74,7 @@ export async function stkPush(
     accountReference,
     transactionDesc,
     callbackUrl: getWebhookUrl(),
-    channelId: getChannelId(),
+    channelId: channelId || undefined,
   });
 
   return { transactionId: tx.transactionId, status: tx.status };

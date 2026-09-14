@@ -85,6 +85,17 @@ export async function GET() {
       },
     });
 
+    // The landlord's M-Pesa collection details for this property — the tenant
+    // pays to exactly this paybill/till/number via an STK push.
+    const paymentDetails = unit?.property
+      ? {
+          mpesaPaybill: unit.property.mpesaPaybill,
+          mpesaAccountName: unit.property.mpesaAccountName,
+          mpesaTillNumber: unit.property.mpesaTillNumber,
+          mpesaPhone: unit.property.mpesaPhone,
+        }
+      : null;
+
     // Scoped to THIS tenant only (see the header comment): the room ledger is
     // empty until the new tenant transacts.
     const [invoices, payments, lease] = await Promise.all([
@@ -150,6 +161,7 @@ export async function GET() {
                 : null,
             }
           : null,
+        paymentDetails,
         landlord: property?.owner ?? null,
         caretakers: property?.caretakerAssignments?.map((a) => a.caretaker) ?? [],
         lease,

@@ -64,6 +64,18 @@ model Property {
   monthlyIncome Float  @default(0)
   expenses    Float    @default(0)
   images      String[]
+
+  // Landlord's M-Pesa collection details for this property. Shown to tenants
+  // (My Room, allocation notifications) and used to route rent: the tenant only
+  // taps Pay and receives an STK push — no paybill entry needed.
+  mpesaPaybill     String?
+  mpesaAccountName String?
+  mpesaTillNumber  String?
+  mpesaPhone       String?
+  // PalPluss payment-channel id that routes this property's rent to the
+  // LANDLORD'S OWN till/paybill (multi-landlord platform). Rent STK pushes for
+  // this property pass this channel; empty = platform default channel.
+  palplussChannelId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
