@@ -10,38 +10,45 @@ async function main() {
   // Hash the password with bcrypt (matches the app's verifyPassword)
   const passwordHash = await bcrypt.hash(password, 12);
 
-  // Use a raw update because the hand-inserted document may be missing
-  // fields like updatedAt that Prisma requires on deserialization.
-  // NOTE: $currentDate sets a real BSON Date server-side — passing a JS Date
-  // through $runCommandRaw would serialize it to an ISO string, which Prisma
-  // cannot deserialize back into a DateTime.
-  const result = await prisma.$runCommandRaw({
-    update: 'users',
-    updates: [
-      {
-        q: { email },
-        u: {
-          $set: {
-            passwordHash,
-            role: 'SUPER_ADMIN',
-            isVerified: true,
-            isTwoFactorEnabled: false,
-          },
-          $currentDate: { updatedAt: true },
-        },
+  // Find the user first
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) {
+    // Create the user if they don't exist
+    const newUser = await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        firstName: 'Admin',
+        lastName: 'User',
+        role: 'SUPER_ADMIN',
+        isVerified: true,
+        isTwoFactorEnabled: false,
       },
-    ],
+    });
+    console.log(`✅ Created new user ${email} with role SUPER_ADMIN`);
+    console.log(`   Password: ${password}`);
+    return;
+  }
+
+  // Update the existing user
+  const updated = await prisma.user.update({
+    where: { email },
+    data: {
+      passwordHash,
+      role: 'SUPER_ADMIN',
+      isVerified: true,
+      isTwoFactorEnabled: false,
+    },
+    select: {
+      email: true,
+      role: true,
+      isVerified: true,
+    },
   });
 
-  console.log('=== UPDATE RESULT ===');
-  console.log(JSON.stringify(result, null, 2));
-
-  const found = await prisma.$runCommandRaw({ find: 'users', filter: { email }, limit: 1 });
-  console.log('\n=== VERIFY ===');
-  console.log(JSON.stringify(found, null, 2));
-
-  console.log(`\n✅ Updated ${email}`);
-  console.log(`   Role: SUPER_ADMIN`);
+  console.log(`✅ Updated ${email}`);
+  console.log(`   Role: ${updated.role}`);
   console.log(`   Password: ${password}`);
   console.log('   You can now log in at /login with these credentials.');
 }

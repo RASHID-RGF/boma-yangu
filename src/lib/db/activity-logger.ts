@@ -1,4 +1,5 @@
 import prisma from './prisma';
+import { Prisma } from '@prisma/client';
 
 /**
  * Logs a user activity to the activityLog table.
@@ -26,7 +27,7 @@ export async function logActivity(params: {
         userId: params.userId,
         propertyId: params.propertyId ?? null,
         maintenanceId: params.maintenanceId ?? null,
-        metadata: params.metadata ?? null,
+        metadata: (params.metadata ?? Prisma.DbNull) as any,
         ipAddress: params.ipAddress ?? null,
       },
     });
@@ -57,8 +58,8 @@ export async function logAudit(params: {
         entityType: params.entityType,
         entityId: params.entityId,
         userId: params.userId,
-        oldValue: params.oldValue ?? null,
-        newValue: params.newValue ?? null,
+        oldValue: (params.oldValue ?? Prisma.DbNull) as any,
+        newValue: (params.newValue ?? Prisma.DbNull) as any,
         ipAddress: params.ipAddress ?? null,
         userAgent: params.userAgent ?? null,
       },

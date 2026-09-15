@@ -60,8 +60,7 @@ export async function GET() {
       },
     });
 
-    // Sort in JS (grouped by property, then by unit number) because Prisma's
-    // MongoDB connector does not support ordering by relation fields.
+    // Sort in JS (grouped by property, then by unit number).
     units.sort((a, b) => {
       const pa = a.property?.name ?? '';
       const pb = b.property?.name ?? '';

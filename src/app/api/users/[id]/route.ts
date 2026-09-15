@@ -78,7 +78,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     });
 
     // Log user update with before/after values
-    const ipAddress = extractIpAddress(_request);
+    const ipAddress = extractIpAddress(request);
     logActivity({
       action: 'USER_UPDATED',
       description: `User ${existing.firstName} ${existing.lastName} updated`,
@@ -95,7 +95,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       oldValue: { email: existing.email, firstName: existing.firstName, lastName: existing.lastName, role: existing.role },
       newValue: validated,
       ipAddress,
-      userAgent: extractUserAgent(_request),
+      userAgent: extractUserAgent(request),
     });
 
     return NextResponse.json({ success: true, data: user });

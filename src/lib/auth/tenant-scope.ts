@@ -10,8 +10,7 @@ const TENANT_PROFILE_INCLUDE = {
 };
 
 /**
- * Contact filters are case-insensitive on email (Prisma's MongoDB connector
- * uses a RegEx for `mode: 'insensitive'`) so a landlord can enter
+ * Contact filters are case-insensitive on email so a landlord can enter
  * "Mary@Example.com" and the tenant still links when signing in with
  * "mary@example.com".
  */
