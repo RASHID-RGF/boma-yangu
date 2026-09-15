@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { createToken, setSessionCookie } from '@/lib/auth/jwt';
 import { verifyPassword } from '@/lib/auth/password';
 import { loginSchema } from '@/lib/utils/validation';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import type { UserRole } from '@/types';
 import type { Prisma } from '@prisma/client';
 
@@ -67,15 +68,10 @@ export async function POST(request: Request) {
       } catch (linkError) {
         console.error('Failed to link tenant profile on login:', linkError);
       }
-    }
-
-    // Reflect the login in MongoDB: update lastLoginAt and log a LoginRecord.
+    }    // Reflect the login in PostgreSQL: update lastLoginAt and log a LoginRecord.
     // Best-effort: never let telemetry failure turn a successful login into an error.
     try {
-      const ipAddress =
-        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        request.headers.get('x-real-ip') ||
-        null;
+      const ipAddress = extractIpAddress(request);
       const userAgent = request.headers.get('user-agent') || null;
 
       await Promise.all([
@@ -91,14 +87,13 @@ export async function POST(request: Request) {
             userAgent,
           },
         }),
-        prisma.activityLog.create({
-          data: {
-            action: 'LOGIN',
-            description: 'User logged in',
-            entityType: 'USER',
-            entityId: user.id,
-            userId: user.id,
-          },
+        logActivity({
+          action: 'USER_LOGIN',
+          description: `${user.firstName} ${user.lastName} logged in`,
+          entityType: 'USER',
+          entityId: user.id,
+          userId: user.id,
+          ipAddress,
         }),
       ]);
     } catch (recordError) {

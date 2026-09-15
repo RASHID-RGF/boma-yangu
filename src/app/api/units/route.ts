@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth/jwt';
 import { OPERATIONS_ROLES, isManagementRole } from '@/lib/auth/rbac';
 import { isPalplussConfigured } from '@/lib/payments/finalize';
 import { getPalpluss, PalPlussApiError } from '@/lib/payments/palpluss';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 
 export async function GET() {
@@ -201,6 +202,17 @@ export async function POST(request: Request) {
 
 
       return created;
+    });
+
+    // Log the unit creation activity
+    logActivity({
+      action: 'UNIT_CREATED',
+      description: `Unit ${unit.unitNumber} created in property`,
+      entityType: 'UNIT',
+      entityId: unit.id,
+      userId: session.userId,
+      propertyId: validated.propertyId,
+      ipAddress: extractIpAddress(request),
     });
 
     return NextResponse.json({ success: true, data: unit }, { status: 201 });

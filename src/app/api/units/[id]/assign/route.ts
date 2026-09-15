@@ -6,6 +6,7 @@ import { findMatchingTenantUser, normalizeEmail, normalizePhone } from '@/lib/au
 import { deriveNameFromEmail } from '@/lib/utils/contact';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 import type { Prisma, Tenant } from '@prisma/client';
 
@@ -249,6 +250,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
     } catch (notifyError) {
       console.error('Assign room notification error:', notifyError);
     }
+
+    // Log the room assignment activity
+    logActivity({
+      action: 'ROOM_ASSIGNED',
+      description: `Room ${unit.unitNumber} assigned to ${assigned.firstName} ${assigned.lastName}`,
+      entityType: 'UNIT',
+      entityId: unit.id,
+      userId: session.userId,
+      propertyId: unit.property?.id ?? null,
+      ipAddress: extractIpAddress(request),
+    });
 
     return NextResponse.json({ success: true, data: assigned }, { status: 201 });
   } catch (error: any) {

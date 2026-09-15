@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 
 const createDocumentSchema = z.object({
@@ -119,6 +120,17 @@ export async function POST(request: Request) {
         uploadedBy: { select: { firstName: true, lastName: true } },
         property: { select: { name: true } },
       },
+    });
+
+    // Log the document upload
+    logActivity({
+      action: 'DOCUMENT_UPLOADED',
+      description: `Document "${validated.name}" (${validated.type}) uploaded`,
+      entityType: 'DOCUMENT',
+      entityId: document.id,
+      userId: session.userId,
+      propertyId,
+      ipAddress: extractIpAddress(request),
     });
 
     return NextResponse.json({ success: true, data: document }, { status: 201 });

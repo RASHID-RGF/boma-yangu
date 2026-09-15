@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { hashPassword } from '@/lib/auth/password';
+import { logActivity, logAudit, extractIpAddress, extractUserAgent } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 
 const createUserSchema = z.object({
@@ -103,6 +104,26 @@ export async function POST(request: Request) {
         isVerified: false,
       },
       select: USER_SELECT,
+    });
+
+    // Log user creation activity and audit trail
+    const ipAddress = extractIpAddress(request);
+    logActivity({
+      action: 'USER_CREATED',
+      description: `User ${user.firstName} ${user.lastName} (${user.email}) created with role ${user.role}`,
+      entityType: 'USER',
+      entityId: user.id,
+      userId: session.userId,
+      ipAddress,
+    });
+    logAudit({
+      action: 'USER_CREATED',
+      entityType: 'USER',
+      entityId: user.id,
+      userId: session.userId,
+      newValue: { email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role },
+      ipAddress,
+      userAgent: extractUserAgent(request),
     });
 
     return NextResponse.json({ success: true, data: user }, { status: 201 });

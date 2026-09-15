@@ -38,9 +38,9 @@ async function main() {
 
   console.log('=== USER lastLoginAt ===');
   console.log(JSON.stringify(updated, null, 2));
-  console.log('\n=== loginRecords collection ===');
+  console.log('\n=== loginRecords table ===');
   console.log(JSON.stringify(records, null, 2));
-  console.log(`\n✅ Login tracking verified: lastLoginAt updated + ${records.length} login record(s) in MongoDB`);
+  console.log(`\n✅ Login tracking verified: lastLoginAt updated + ${records.length} login record(s) in PostgreSQL`);
 }
 
 main()

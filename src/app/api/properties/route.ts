@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 
 const createPropertySchema = z.object({
@@ -141,21 +142,16 @@ export async function POST(request: Request) {
       include: { units: true },
     });
 
-    // Log the activity
-    try {
-      await prisma.activityLog.create({
-        data: {
-          action: 'PROPERTY_CREATED',
-          description: `Property "${property.name}" created`,
-          entityType: 'PROPERTY',
-          entityId: property.id,
-          userId: session.userId,
-          propertyId: property.id,
-        },
-      });
-    } catch {
-      // Activity log is non-critical
-    }
+    // Log the property creation activity
+    logActivity({
+      action: 'PROPERTY_CREATED',
+      description: `Property "${property.name}" created with ${rooms.length} units`,
+      entityType: 'PROPERTY',
+      entityId: property.id,
+      userId: session.userId,
+      propertyId: property.id,
+      ipAddress: extractIpAddress(request),
+    });
 
     return NextResponse.json({ success: true, data: property }, { status: 201 });
   } catch (error: any) {

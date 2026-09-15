@@ -1,52 +1,42 @@
 #!/usr/bin/env bash
-# Start the local MongoDB used by the app.
-#
-# Prisma with MongoDB requires the server to run as a (single-node) replica set —
-# a plain `mongod` start makes every database write fail with:
-#   "Prisma needs to perform transactions, which requires your MongoDB server
-#    to be run as a replica set."
+# Start the local PostgreSQL database used by the app.
 #
 # Usage:
 #   npm run db:start     (or ./scripts/start-db.sh)
 
 set -euo pipefail
 
-DB_PATH="${MONGODB_DB_PATH:-/data/db}"
-PORT="${MONGODB_PORT:-27017}"
-LOG_PATH="${MONGODB_LOG_PATH:-/tmp/mongod.log}"
-REPL_SET="${MONGODB_REPL_SET:-rs0}"
+DB_NAME="${POSTGRES_DB:-bomayangu}"
+DB_USER="${POSTGRES_USER:-postgres}"
+DB_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
+DB_PORT="${POSTGRES_PORT:-5432}"
 
-# Refuse to start twice on the same port.
-if mongosh --quiet "mongodb://127.0.0.1:${PORT}" --eval "db.runCommand({ping:1}).ok" >/dev/null 2>&1; then
-  echo "✅ MongoDB already running on 127.0.0.1:${PORT}"
-  exit 0
-fi
-
-echo "Starting mongod (replica set \"${REPL_SET}\", dbpath ${DB_PATH})..."
-mongod --dbpath "${DB_PATH}" \
-  --logpath "${LOG_PATH}" \
-  --bind_ip 127.0.0.1 \
-  --port "${PORT}" \
-  --replSet "${REPL_SET}" \
-  --fork
-
-# Initiate the replica set on first start.
-for i in $(seq 1 15); do
-  if mongosh --quiet "mongodb://127.0.0.1:${PORT}" --eval "db.runCommand({ping:1}).ok" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
-
-if ! mongosh --quiet "mongodb://127.0.0.1:${PORT}" --eval "db.hello().isWritablePrimary" | grep -q true; then
-  mongosh --quiet "mongodb://127.0.0.1:${PORT}" --eval "try { rs.initiate() } catch (e) { if (!e.message.includes('already initialized')) throw e }" >/dev/null
-  echo "⏳ Waiting for replica set primary..."
+# Check if PostgreSQL is already running
+if pg_isready -h localhost -p "${DB_PORT}" -q 2>/dev/null; then
+  echo "✅ PostgreSQL already running on port ${DB_PORT}"
+else
+  echo "Starting PostgreSQL..."
+  sudo service postgresql start 2>/dev/null || sudo pg_ctlcluster 17 main start 2>/dev/null || {
+    echo "⚠️  Could not start PostgreSQL automatically."
+    echo "   Please start it manually: sudo service postgresql start"
+    exit 1
+  }
+  
+  # Wait for PostgreSQL to be ready
   for i in $(seq 1 15); do
-    if mongosh --quiet "mongodb://127.0.0.1:${PORT}" --eval "db.hello().isWritablePrimary" | grep -q true; then
+    if pg_isready -h localhost -p "${DB_PORT}" -q 2>/dev/null; then
       break
     fi
     sleep 1
   done
 fi
 
-echo "✅ MongoDB ready on 127.0.0.1:${PORT} (replica set \"${REPL_SET}\", primary: $(mongosh --quiet "mongodb://127.0.0.1:${PORT}" --eval "db.hello().isWritablePrimary"))"
+# Create the database if it doesn't exist
+if ! psql -h localhost -p "${DB_PORT}" -U "${DB_USER}" -lqt 2>/dev/null | grep -qw "${DB_NAME}"; then
+  echo "Creating database '${DB_NAME}'..."
+  psql -h localhost -p "${DB_PORT}" -U "${DB_USER}" -c "CREATE DATABASE ${DB_NAME};" 2>/dev/null || {
+    echo "⚠️  Could not create database. Check PostgreSQL credentials."
+  }
+fi
+
+echo "✅ PostgreSQL ready on localhost:${DB_PORT} (database: ${DB_NAME})"

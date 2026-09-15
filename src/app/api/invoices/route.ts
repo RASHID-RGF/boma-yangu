@@ -5,6 +5,7 @@ import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { invoiceSchema } from '@/lib/utils/validation';
 import { generateInvoiceNumber } from '@/lib/utils/format';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 
 export async function GET() {
   try {
@@ -207,6 +208,16 @@ export async function POST(request: Request) {
     } catch (notifyError) {
       console.error('Invoice notification error:', notifyError);
     }
+
+    // Log the invoice creation activity
+    logActivity({
+      action: 'INVOICE_CREATED',
+      description: `Invoice ${invoiceNumber} created for KES ${totalAmount.toLocaleString()}`,
+      entityType: 'INVOICE',
+      entityId: invoice.id,
+      userId: session.userId,
+      ipAddress: extractIpAddress(request),
+    });
 
     return NextResponse.json({ success: true, data: invoice }, { status: 201 });
   } catch (error: any) {

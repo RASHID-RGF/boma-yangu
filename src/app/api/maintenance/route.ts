@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 
 const createMaintenanceSchema = z.object({
@@ -137,6 +138,17 @@ export async function POST(request: Request) {
     } catch (e) {
       console.error('Maintenance notification error:', e);
     }
+
+    // Log the maintenance request creation
+    logActivity({
+      action: 'MAINTENANCE_REPORTED',
+      description: `Maintenance request "${validated.title}" reported [${validated.priority}]`,
+      entityType: 'MAINTENANCE',
+      entityId: request_.id,
+      userId: session.userId,
+      maintenanceId: request_.id,
+      ipAddress: extractIpAddress(request),
+    });
 
     return NextResponse.json({ success: true, data: request_ }, { status: 201 });
   } catch (error: any) {

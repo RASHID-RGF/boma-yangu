@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole, OPERATIONS_ROLES } from '@/lib/auth/rbac';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 
 const updateMaintenanceSchema = z.object({
@@ -97,6 +98,17 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     } catch (notifyError) {
       console.error('Maintenance update notification error:', notifyError);
     }
+
+    // Log the maintenance status change
+    logActivity({
+      action: `MAINTENANCE_${data.status || 'UPDATED'}`,
+      description: `Maintenance "${existing.title}" ${data.status ? `status changed to ${data.status}` : 'updated'}`,
+      entityType: 'MAINTENANCE',
+      entityId: params.id,
+      userId: session.userId,
+      maintenanceId: params.id,
+      ipAddress: extractIpAddress(request),
+    });
 
     return NextResponse.json({ success: true, data: updated });
   } catch (error: any) {

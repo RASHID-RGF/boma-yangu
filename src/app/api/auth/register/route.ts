@@ -4,6 +4,7 @@ import { createToken, setSessionCookie } from '@/lib/auth/jwt';
 import { hashPassword } from '@/lib/auth/password';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { registerSchema } from '@/lib/utils/validation';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import type { UserRole } from '@/types';
 
 export async function POST(request: Request) {
@@ -55,15 +56,10 @@ export async function POST(request: Request) {
       role: user.role as UserRole,
     });
 
-    setSessionCookie(token);
-
-    // Reflect the registration login in MongoDB. Best-effort: never let a
+    setSessionCookie(token);    // Reflect the registration in PostgreSQL. Best-effort: never let a
     // telemetry failure turn a successful registration into an error.
     try {
-      const ipAddress =
-        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        request.headers.get('x-real-ip') ||
-        null;
+      const ipAddress = extractIpAddress(request);
       const userAgent = request.headers.get('user-agent') || null;
 
       await Promise.all([
@@ -79,9 +75,17 @@ export async function POST(request: Request) {
             userAgent,
           },
         }),
+        logActivity({
+          action: 'USER_REGISTERED',
+          description: `${user.firstName} ${user.lastName} registered as ${user.role}`,
+          entityType: 'USER',
+          entityId: user.id,
+          userId: user.id,
+          ipAddress,
+        }),
       ]);
     } catch (recordError) {
-      console.error('Failed to record registration login:', recordError);
+      console.error('Failed to record registration:', recordError);
     }
 
     return NextResponse.json({

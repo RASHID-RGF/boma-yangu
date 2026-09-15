@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 
 const sendMessageSchema = z.object({
@@ -78,6 +79,16 @@ export async function POST(request: Request) {
         sender: { select: { id: true, firstName: true, lastName: true, role: true } },
         receiver: { select: { id: true, firstName: true, lastName: true, role: true } },
       },
+    });
+
+    // Log the message sent
+    logActivity({
+      action: 'MESSAGE_SENT',
+      description: `Message "${validated.subject}" sent to ${receiver.firstName} ${receiver.lastName}`,
+      entityType: 'MESSAGE',
+      entityId: message.id,
+      userId: session.userId,
+      ipAddress: extractIpAddress(request),
     });
 
     return NextResponse.json({ success: true, data: message }, { status: 201 });

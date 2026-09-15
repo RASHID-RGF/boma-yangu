@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { hashPassword } from '@/lib/auth/password';
+import { logActivity, logAudit, extractIpAddress, extractUserAgent } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 
@@ -76,6 +77,27 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       },
     });
 
+    // Log user update with before/after values
+    const ipAddress = extractIpAddress(_request);
+    logActivity({
+      action: 'USER_UPDATED',
+      description: `User ${existing.firstName} ${existing.lastName} updated`,
+      entityType: 'USER',
+      entityId: params.id,
+      userId: session.userId,
+      ipAddress,
+    });
+    logAudit({
+      action: 'USER_UPDATED',
+      entityType: 'USER',
+      entityId: params.id,
+      userId: session.userId,
+      oldValue: { email: existing.email, firstName: existing.firstName, lastName: existing.lastName, role: existing.role },
+      newValue: validated,
+      ipAddress,
+      userAgent: extractUserAgent(_request),
+    });
+
     return NextResponse.json({ success: true, data: user });
   } catch (error: any) {
     if (error?.errors) {
@@ -110,6 +132,26 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
     if (!existing) {
       return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });
     }
+
+    // Log user deletion with audit trail
+    const ipAddress = extractIpAddress(_request);
+    logActivity({
+      action: 'USER_DELETED',
+      description: `User ${existing.firstName} ${existing.lastName} (${existing.email}) deleted`,
+      entityType: 'USER',
+      entityId: params.id,
+      userId: session.userId,
+      ipAddress,
+    });
+    logAudit({
+      action: 'USER_DELETED',
+      entityType: 'USER',
+      entityId: params.id,
+      userId: session.userId,
+      oldValue: { email: existing.email, firstName: existing.firstName, lastName: existing.lastName, role: existing.role },
+      ipAddress,
+      userAgent: extractUserAgent(_request),
+    });
 
     await prisma.user.delete({ where: { id: params.id } });
 

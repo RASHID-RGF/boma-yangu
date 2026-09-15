@@ -408,7 +408,7 @@ export default function AdminUsersPage() {
           </div>
           {loginRecords.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-6">
-              No logins recorded yet — they will appear here and in MongoDB (loginRecords collection) as users sign in.
+              No logins recorded yet — they will appear here and in the database (loginRecords table) as users sign in.
             </p>
           ) : (
             <div className="space-y-3">

@@ -10,6 +10,7 @@ import {
 import { isManagementRole } from '@/lib/auth/rbac';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
+import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 
@@ -295,6 +296,17 @@ export async function POST(request: Request) {
     } catch (notifyError) {
       console.error('Add tenant notification error:', notifyError);
     }
+
+    // Log the tenant creation activity
+    logActivity({
+      action: 'TENANT_ADDED',
+      description: `${tenant.firstName} ${tenant.lastName} added as tenant${unit ? ` for unit ${unit.unitNumber}` : ''}`,
+      entityType: 'TENANT',
+      entityId: tenant.id,
+      userId: session.userId,
+      propertyId: unit?.propertyId ?? null,
+      ipAddress: extractIpAddress(request),
+    });
 
     return NextResponse.json({ success: true, data: tenant }, { status: 201 });
   } catch (error: any) {
