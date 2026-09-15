@@ -53,7 +53,8 @@ export async function sendEmail({ to, subject, html }: SendEmailParams): Promise
       body: JSON.stringify({ to, subject, html }),
     });
 
-    return response.ok;
+    const payload = await response.json().catch(() => ({ success: response.ok }));
+    return Boolean(payload.success ?? response.ok);
   } catch (error) {
     console.error('Failed to send email:', error);
     return false;

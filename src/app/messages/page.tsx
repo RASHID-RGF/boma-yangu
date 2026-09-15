@@ -46,7 +46,7 @@ export default function MessagesPage() {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({ receiverId: '', subject: '', content: '' });
+  const [form, setForm] = useState({ receiverId: '', receiverEmail: '', subject: '', content: '' });
 
   const fetchMessages = useCallback(async () => {
     setLoading(true);
@@ -81,7 +81,7 @@ export default function MessagesPage() {
       if (!res.ok || !result.success) throw new Error(result.error || 'Failed to send message');
       toast.success('Message sent');
       setModalOpen(false);
-      setForm({ receiverId: '', subject: '', content: '' });
+      setForm({ receiverId: '', receiverEmail: '', subject: '', content: '' });
       await fetchMessages();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to send message');
@@ -222,9 +222,15 @@ export default function MessagesPage() {
             label="To"
             placeholder="Select a recipient"
             options={contactOptions}
-            required
             value={form.receiverId}
             onChange={(e) => handleChange('receiverId', e.target.value)}
+          />
+          <Input
+            name="receiverEmail"
+            label="or recipient email"
+            placeholder="tenant@example.com or landlord@example.com"
+            value={form.receiverEmail}
+            onChange={(e) => handleChange('receiverEmail', e.target.value)}
           />
           <Input
             name="subject"

@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
+import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
 
 const createMaintenanceSchema = z.object({
@@ -121,11 +122,13 @@ export async function POST(request: Request) {
       },
     });
 
-    // Notify management so the request isn't silently dropped
+    // Notify management so the request isn't silently dropped.
+    // Also email the relevant counterpart so tenant/landlord communication is not
+    // hidden inside the dashboard alone.
     try {
       const management = await prisma.user.findMany({
         where: { role: { in: ['LANDLORD', 'MANAGER', 'SUPER_ADMIN'] } },
-        select: { id: true },
+        select: { id: true, email: true, firstName: true, lastName: true },
       });
       await prisma.notification.createMany({
         data: management.map((u) => ({
@@ -135,6 +138,41 @@ export async function POST(request: Request) {
           message: `${validated.title} — ${validated.description}`,
         })),
       });
+
+      const currentUser = await prisma.user.findUnique({
+        where: { id: session.userId },
+        select: { firstName: true, lastName: true },
+      });
+
+      if (!isManagementRole(session.role) && tenantRecord?.userId) {
+        const landlordEmails = management.filter((u) => !!u.email).map((u) => u.email);
+        for (const email of landlordEmails) {
+          await sendPortalNoticeEmail({
+            to: email,
+            recipientName: `${currentUser?.firstName || 'Landlord'} ${currentUser?.lastName || ''}`.trim() || 'Landlord',
+            subject: validated.title,
+            content: `Tenant reported a new maintenance issue: ${validated.description}`,
+            category: 'Maintenance',
+          });
+        }
+      }
+
+      if (isManagementRole(session.role) && request_.tenantId) {
+        const assignedTenant = await prisma.tenant.findUnique({
+          where: { id: request_.tenantId },
+          include: { user: { select: { email: true, firstName: true, lastName: true } } },
+        });
+        if (assignedTenant?.user?.email) {
+          const recipientName = `${assignedTenant.user.firstName} ${assignedTenant.user.lastName}`.trim() || assignedTenant.user.email;
+          await sendPortalNoticeEmail({
+            to: assignedTenant.user.email,
+            recipientName,
+            subject: validated.title,
+            content: `The landlord/manager has logged a maintenance update: ${validated.description}`,
+            category: 'Maintenance',
+          });
+        }
+      }
     } catch (e) {
       console.error('Maintenance notification error:', e);
     }

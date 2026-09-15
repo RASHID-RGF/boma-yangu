@@ -3,13 +3,20 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
+import { findUserByEmail, sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
 
-const sendMessageSchema = z.object({
-  receiverId: z.string().min(1, 'Select a recipient'),
-  subject: z.string().min(2, 'Subject must be at least 2 characters'),
-  content: z.string().min(2, 'Message must be at least 2 characters'),
-});
+const sendMessageSchema = z
+  .object({
+    receiverId: z.string().optional(),
+    receiverEmail: z.string().email('Enter a valid recipient email').optional(),
+    subject: z.string().min(2, 'Subject must be at least 2 characters'),
+    content: z.string().min(2, 'Message must be at least 2 characters'),
+  })
+  .refine((data) => !!data.receiverId || !!data.receiverEmail, {
+    message: 'Select a recipient or enter a valid email address',
+    path: ['receiverId'],
+  });
 
 const markReadSchema = z.object({
   id: z.string().min(1),
@@ -60,7 +67,13 @@ export async function POST(request: Request) {
     const body = await request.json();
     const validated = sendMessageSchema.parse(body);
 
-    const receiver = await prisma.user.findUnique({ where: { id: validated.receiverId } });
+    const receiver = validated.receiverId
+      ? await prisma.user.findUnique({
+          where: { id: validated.receiverId },
+          select: { id: true, email: true, firstName: true, lastName: true, role: true },
+        })
+      : await findUserByEmail(validated.receiverEmail);
+
     if (!receiver) {
       return NextResponse.json({ success: false, error: 'Recipient not found' }, { status: 404 });
     }
@@ -71,7 +84,7 @@ export async function POST(request: Request) {
     const message = await prisma.message.create({
       data: {
         senderId: session.userId,
-        receiverId: validated.receiverId,
+        receiverId: receiver.id,
         subject: validated.subject,
         content: validated.content,
       },
@@ -79,6 +92,20 @@ export async function POST(request: Request) {
         sender: { select: { id: true, firstName: true, lastName: true, role: true } },
         receiver: { select: { id: true, firstName: true, lastName: true, role: true } },
       },
+    });
+
+    const sender = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { firstName: true, lastName: true },
+    });
+
+    const senderName = sender ? `${sender.firstName} ${sender.lastName}`.trim() : 'A Boma Yangu user';
+    await sendPortalNoticeEmail({
+      to: receiver.email,
+      recipientName: `${receiver.firstName} ${receiver.lastName}`.trim() || receiver.email,
+      subject: validated.subject,
+      content: `${senderName} sent you a new message: ${validated.content}`,
+      category: 'Message',
     });
 
     // Log the message sent

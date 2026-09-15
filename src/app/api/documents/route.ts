@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
+import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
 
 const createDocumentSchema = z.object({
@@ -121,6 +122,26 @@ export async function POST(request: Request) {
         property: { select: { name: true } },
       },
     });
+
+    if (validated.type === 'LEASE' || validated.type === 'INVOICE') {
+      const tenantProfile = tenantId
+        ? await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            include: { user: { select: { email: true, firstName: true, lastName: true } } },
+          })
+        : null;
+      const targetEmail = tenantProfile?.user?.email;
+      if (tenantProfile?.user && targetEmail) {
+        const recipientName = `${tenantProfile.user.firstName} ${tenantProfile.user.lastName}`.trim() || targetEmail;
+        await sendPortalNoticeEmail({
+          to: targetEmail,
+          recipientName,
+          subject: `${validated.type}: ${validated.name}`,
+          content: `A new ${validated.type.toLowerCase()} document has been uploaded and is available in your Boma Yangu account.`,
+          category: validated.type,
+        });
+      }
+    }
 
     // Log the document upload
     logActivity({

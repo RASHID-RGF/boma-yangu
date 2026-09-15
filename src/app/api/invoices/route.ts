@@ -6,6 +6,7 @@ import { isManagementRole } from '@/lib/auth/rbac';
 import { invoiceSchema } from '@/lib/utils/validation';
 import { generateInvoiceNumber } from '@/lib/utils/format';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
+import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 
 export async function GET() {
   try {
@@ -173,7 +174,7 @@ export async function POST(request: Request) {
       const ownerId = property?.ownerId;
 
       if (!isTenantSent) {
-        // Landlord -> tenant notification + message
+        // Landlord -> tenant notification + message + email.
         if (tenant.userId) {
           await prisma.notification.create({
             data: {
@@ -183,14 +184,26 @@ export async function POST(request: Request) {
               message: `Your rent invoice for KES ${totalAmount.toLocaleString()} is ready and due on ${new Date(validated.dueDate).toDateString()}.`,
             },
           });
-          if (ownerId && ownerId !== tenant.userId) {
-            await prisma.message.create({
-              data: {
-                senderId: ownerId,
-                receiverId: tenant.userId,
-                subject: `Invoice ${invoiceNumber}`,
-                content: `Your invoice for KES ${totalAmount.toLocaleString()} (${validated.month}/${validated.year}) is ready. Due ${new Date(validated.dueDate).toDateString()}.`,
-              },
+          await prisma.message.create({
+            data: {
+              senderId: session.userId,
+              receiverId: tenant.userId,
+              subject: `Invoice ${invoiceNumber}`,
+              content: `Your invoice for KES ${totalAmount.toLocaleString()} (${validated.month}/${validated.year}) is ready. Due ${new Date(validated.dueDate).toDateString()}.`,
+            },
+          });
+
+          const tenantUser = await prisma.user.findUnique({
+            where: { id: tenant.userId },
+            select: { email: true, firstName: true, lastName: true },
+          });
+          if (tenantUser?.email) {
+            await sendPortalNoticeEmail({
+              to: tenantUser.email,
+              recipientName: `${tenantUser.firstName} ${tenantUser.lastName}`.trim() || tenantUser.email,
+              subject: `Invoice ${invoiceNumber}`,
+              content: `Your rent invoice for KES ${totalAmount.toLocaleString()} is ready. Due ${new Date(validated.dueDate).toDateString()}.`,
+              category: 'Invoice',
             });
           }
         }
@@ -204,6 +217,20 @@ export async function POST(request: Request) {
             message: `${tenant.firstName} sent invoice ${invoiceNumber} for KES ${totalAmount.toLocaleString()}.`,
           },
         });
+
+        const owner = await prisma.user.findUnique({
+          where: { id: ownerId },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (owner?.email) {
+          await sendPortalNoticeEmail({
+            to: owner.email,
+            recipientName: `${owner.firstName} ${owner.lastName}`.trim() || owner.email,
+            subject: `Invoice from ${tenant.firstName} ${tenant.lastName}`,
+            content: `${tenant.firstName} ${tenant.lastName} sent invoice ${invoiceNumber} for KES ${totalAmount.toLocaleString()}.`,
+            category: 'Invoice',
+          });
+        }
       }
     } catch (notifyError) {
       console.error('Invoice notification error:', notifyError);
