@@ -46,7 +46,13 @@ export async function POST(req: NextRequest) {
   // Requires a UNIQUE match — if several records could fit, treat it as
   // ambiguous rather than finalizing an arbitrary one.
   if (!payment && transaction.phone_number && transaction.amount > 0) {
-    const norm = (p: string) => p.replace(/^0+/, '254').replace(/^\+/, '');
+    const norm = (p: string) => {
+      const digits = p.trim().replace(/\D/g, '');
+      if (!digits) return '';
+      if (digits.startsWith('254')) return digits;
+      if (digits.startsWith('0')) return `254${digits.slice(1)}`;
+      return `254${digits}`;
+    };
     const phone = norm(transaction.phone_number);
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // last 24h
     // checkoutRequestId is null only for link-created records — STK payments

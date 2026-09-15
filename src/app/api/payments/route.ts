@@ -4,8 +4,11 @@ import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
 
-import { stkPush as palplussStkPush, PalPlussApiError } from '@/lib/payments/palpluss';
-import { stkPush as darajaStkPush, isDarajaConfigured } from '@/lib/payments/daraja';
+import {
+  stkPush as palplussStkPush,
+  PalPlussApiError,
+  isValidSafaricomPhoneNumber,
+} from '@/lib/payments/palpluss';
 import { finalizePayment, isPalplussConfigured, simulateTransactionCode } from '@/lib/payments/finalize';
 import { resolveChannelId } from '@/lib/payments/palpluss';
 import { z } from 'zod';
@@ -304,6 +307,8 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log('[Payment] Resolved phone:', phoneNumber, 'tenantId:', tenantId, 'unitId:', unitId);
+
     // M-Pesa path: push an STK prompt to the tenant's phone. Tenants always go
     // through the configured M-Pesa provider (Daraja first, then PalPluss) —
     // they can never self-confirm a payment by passing a method.
@@ -315,42 +320,20 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
+      if (!isValidSafaricomPhoneNumber(phone)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Enter a valid Safaricom mobile number that can receive the M-Pesa prompt. Update your profile if needed.',
+          },
+          { status: 400 }
+        );
+      }
       const accountReference = invoice
         ? invoice.invoiceNumber
         : unitId
           ? `RENT-${unitId.slice(-5).toUpperCase()}`
           : 'RENT';
-
-      if (isDarajaConfigured()) {
-        try {
-          const stk = await darajaStkPush(phone, amount, accountReference, 'Rent payment');
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: { checkoutRequestId: stk.transactionId },
-          });
-          return NextResponse.json(
-            {
-              success: true,
-              data: {
-                paymentId: payment.id,
-                status: 'PENDING',
-                message: 'Payment prompt sent. Enter your PIN to complete the payment.',
-              },
-            },
-            { status: 201 }
-          );
-        } catch (stkError) {
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: { status: 'FAILED' },
-          });
-          console.error('Daraja STK push error:', stkError);
-          return NextResponse.json(
-            { success: false, error: 'Could not reach the Daraja payment provider. Please try again.' },
-            { status: 502 }
-          );
-        }
-      }
 
       if (isPalplussConfigured()) {
         try {
@@ -363,9 +346,30 @@ export async function POST(request: Request) {
                 select: { property: { select: { palplussChannelId: true } } },
               })
             : null;
-          const channelId = resolveChannelId(property?.property?.palplussChannelId);
+          const preferredChannelId = resolveChannelId(property?.property?.palplussChannelId);
+          const channelIdsToTry = preferredChannelId ? [preferredChannelId, undefined] : [undefined];
 
-          const stk = await palplussStkPush(phone, amount, accountReference, 'Rent payment', channelId);
+          let stk: Awaited<ReturnType<typeof palplussStkPush>> | undefined;
+          let lastError: unknown;
+          for (const channelId of channelIdsToTry) {
+            try {
+              console.log('[Payment] PalPluss STK push → phone:', phone, 'amount:', amount, 'ref:', accountReference, 'channel:', channelId ?? '(default)');
+              stk = await palplussStkPush(phone, amount, accountReference, 'Rent payment', channelId);
+              break;
+            } catch (error) {
+              lastError = error;
+              if (error instanceof PalPlussApiError && [400, 422].includes(error.httpStatus) && channelId && channelIdsToTry.length > 1) {
+                console.warn('[Payment] PalPluss custom channel rejected, retrying with account default channel:', error.message);
+                continue;
+              }
+              throw error;
+            }
+          }
+
+          if (!stk) {
+            throw lastError ?? new Error('PalPluss STK push failed');
+          }
+
           await prisma.payment.update({
             where: { id: payment.id },
             data: { checkoutRequestId: stk.transactionId },
@@ -442,13 +446,16 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error: any) {
+    console.error('Create payment error:', error?.message || error);
     if (error?.errors) {
       return NextResponse.json(
         { success: false, error: error.errors[0]?.message || 'Validation error' },
         { status: 400 }
       );
     }
-    console.error('Create payment error:', error);
-    return NextResponse.json({ success: false, error: 'Failed to record payment' }, { status: 500 });
+    // Surface PalPluss / Daraja errors to the browser so the user sees
+    // the real reason instead of a generic "Failed to record payment".
+    const msg = error?.message || 'Failed to record payment';
+    return NextResponse.json({ success: false, error: msg }, { status: 400 });
   }
 }

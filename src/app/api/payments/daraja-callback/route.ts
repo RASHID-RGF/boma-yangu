@@ -3,7 +3,15 @@ import prisma from '@/lib/db/prisma';
 import { finalizePayment } from '@/lib/payments/finalize';
 
 function normalizePhoneNumber(phone: string): string {
-  return phone.replace(/^0+/, '254').replace(/^\+/, '').replace(/\s+/g, '');
+  const digits = phone.trim().replace(/\D/g, '');
+
+  if (!digits) {
+    return '';
+  }
+
+  if (digits.startsWith('254')) return digits;
+  if (digits.startsWith('0')) return `254${digits.slice(1)}`;
+  return `254${digits}`;
 }
 
 function getCallbackItem(items: Array<{ Name: string; Value: string | number }>, name: string) {
