@@ -11,3 +11,5 @@ dist/
 build/
 coverage/
 .turbo/
+
+.env.backup
