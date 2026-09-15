@@ -11,7 +11,7 @@ const updateUserSchema = z.object({
   lastName: z.string().min(2).optional(),
   email: z.string().email().optional(),
   phone: z.string().optional().nullable(),
-  role: z.enum(['SUPER_ADMIN', 'LANDLORD', 'MANAGER', 'CARETAKER', 'TENANT']).optional(),
+  role: z.enum(['SUPER_ADMIN', 'LANDLORD', 'TENANT']).optional(),
   isVerified: z.boolean().optional(),
   password: z.string().min(6).optional(),
 });

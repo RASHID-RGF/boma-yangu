@@ -3,41 +3,16 @@ import { UserRole } from '@/types';
 // ============ ROLE GROUPS ============
 // Convenience groups so the sidebar and route guards stay in sync.
 
-/** Full management access (property owners & professional managers). */
+/** Full management access (property owners & super admin). */
 export const MANAGEMENT_ROLES: UserRole[] = [
   UserRole.SUPER_ADMIN,
   UserRole.LANDLORD,
-  UserRole.MANAGER,
-];
-
-/** Management + caretaker (day-to-day site operations). */
-export const OPERATIONS_ROLES: UserRole[] = [
-  ...MANAGEMENT_ROLES,
-  UserRole.CARETAKER,
 ];
 
 /** Anyone who can see the tenant-facing money sections (pay/invoices). */
 export const FINANCIAL_ROLES: UserRole[] = [
   ...MANAGEMENT_ROLES,
   UserRole.TENANT,
-];
-
-/**
- * Monitor-only money access: caretakers can watch payments and invoices for
- * the properties they are assigned to, but can never record or edit money.
- */
-export const MONITORING_ROLES: UserRole[] = [
-  ...MANAGEMENT_ROLES,
-  UserRole.CARETAKER,
-];
-
-/**
- * Everyone who can open the money sections (pay / invoices): management and
- * caretakers monitor them, tenants pay their own room through them.
- */
-export const PAYMENT_ROLES: UserRole[] = [
-  ...FINANCIAL_ROLES,
-  UserRole.CARETAKER,
 ];
 
 export const ALL_ROLES: UserRole[] = Object.values(UserRole);
@@ -48,17 +23,14 @@ export interface RouteRule {
   prefix: string;
   roles: UserRole[];
 }
-
 export const ROUTE_ACCESS: RouteRule[] = [
   { prefix: '/admin', roles: [UserRole.SUPER_ADMIN] },
-  { prefix: '/portal/tenant', roles: [UserRole.TENANT] },
-  { prefix: '/portal/caretaker', roles: [UserRole.CARETAKER] },
   { prefix: '/my-room', roles: [UserRole.TENANT] },
   { prefix: '/properties', roles: MANAGEMENT_ROLES },
-  { prefix: '/units', roles: OPERATIONS_ROLES },
+  { prefix: '/units', roles: MANAGEMENT_ROLES },
   { prefix: '/tenants', roles: MANAGEMENT_ROLES },
-  { prefix: '/payments', roles: PAYMENT_ROLES },
-  { prefix: '/invoices', roles: PAYMENT_ROLES },
+  { prefix: '/payments', roles: FINANCIAL_ROLES },
+  { prefix: '/invoices', roles: FINANCIAL_ROLES },
   { prefix: '/maintenance', roles: ALL_ROLES },
   { prefix: '/leases', roles: MANAGEMENT_ROLES },
   { prefix: '/reports', roles: MANAGEMENT_ROLES },
@@ -72,9 +44,6 @@ export const ROUTE_ACCESS: RouteRule[] = [
 export const ROLE_HOME: Record<UserRole, string> = {
   [UserRole.SUPER_ADMIN]: '/dashboard',
   [UserRole.LANDLORD]: '/dashboard',
-  [UserRole.MANAGER]: '/dashboard',
-  // Portal pages are not built yet — everyone lands on the dashboard for now.
-  [UserRole.CARETAKER]: '/dashboard',
   [UserRole.TENANT]: '/dashboard',
 };
 
@@ -92,7 +61,6 @@ export function canAccessRoute(role: UserRole, pathname: string): boolean {
 }
 
 /** Home page for a role (used for redirects after login or access denial). */
-
 export function getRoleHome(role: UserRole): string {
   return ROLE_HOME[role] ?? '/dashboard';
 }

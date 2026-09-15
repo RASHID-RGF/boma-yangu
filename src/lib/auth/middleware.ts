@@ -3,13 +3,11 @@ import type { NextRequest } from 'next/server';
 import { verifyToken } from './jwt';
 import type { UserRole } from '@/types';
 
-const PUBLIC_ROUTES = ['/login', '/register', '/forgot-password', '/api/auth/login', '/api/auth/register', '/api/auth/google'];
+const PUBLIC_ROUTES = ['/login', '/register', '/forgot-password', '/api/auth/login', '/api/auth/register'];
 
 const ROLE_HIERARCHY: Record<UserRole, number> = {
   SUPER_ADMIN: 100,
   LANDLORD: 80,
-  MANAGER: 60,
-  CARETAKER: 40,
   TENANT: 20,
 };
 

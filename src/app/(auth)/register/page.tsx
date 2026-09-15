@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AuthLayout } from '@/components/layout/auth-layout';
 import { useAuth } from '@/hooks/useAuth';
-import { GoogleSignInButton } from '@/components/auth/google-sign-in-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -15,8 +14,6 @@ import toast from 'react-hot-toast';
 
 const ROLE_OPTIONS = [
   { value: UserRole.LANDLORD, label: 'Landlord' },
-  { value: UserRole.MANAGER, label: 'Property Manager' },
-  { value: UserRole.CARETAKER, label: 'Caretaker' },
   { value: UserRole.TENANT, label: 'Tenant' },
 ];
 
@@ -164,38 +161,6 @@ function RegisterForm() {
           Create Account
         </Button>
       </form>
-
-      <div className="relative my-4">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-[#2a2a3e]" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase tracking-[0.2em] text-gray-500">
-          <span className="bg-[#0f0f1a] px-2">Or sign up with</span>
-        </div>
-      </div>
-
-      <GoogleSignInButton
-        onSuccess={async (credential) => {
-          const res = await fetch('/api/auth/google', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ credential }),
-          });
-
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok || (data && data.success === false)) {
-            throw new Error((data as { error?: string }).error || 'Google sign-in failed');
-          }
-          window.location.href = '/dashboard';
-        }}
-        onError={(message) => {
-          if (message) {
-            toast.error(message);
-          }
-        }}
-        label="Continue with Google"
-      />
 
       <p className="text-center text-sm text-gray-500">
         Already have an account?{' '}

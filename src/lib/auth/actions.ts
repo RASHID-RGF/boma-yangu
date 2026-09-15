@@ -6,12 +6,6 @@ import prisma from '@/lib/db/prisma'
 import { getSession, clearSession } from '@/lib/auth/jwt'
 import type { User } from '@/types'
 
-export async function signInWithGoogle() {
-  // One Tap / Sign-In Button flow posts the credential to /api/auth/google.
-  // This server action is kept only for any server-initiated auth flows.
-  return { success: false, error: 'Use the Google Sign-In Button to sign in' }
-}
-
 export async function signOut() {
   clearSession()
 

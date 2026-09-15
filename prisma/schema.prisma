@@ -27,8 +27,6 @@ model User {
 
   loginRecords                LoginRecord[]
   ownedProperties             Property[]            @relation("PropertyOwner")
-  managedProperties           Property[]            @relation("PropertyManager")
-  assignments                 CaretakerAssignment[]
   tenants                     Tenant[]
   payments                    Payment[]
   invoices                    Invoice[]
@@ -77,11 +75,8 @@ model Property {
 
   ownerId   String
   owner     User    @relation("PropertyOwner", fields: [ownerId], references: [id])
-  managerId String?
-  manager   User?   @relation("PropertyManager", fields: [managerId], references: [id])
 
   units                Unit[]
-  caretakerAssignments CaretakerAssignment[]
   documents            Document[]
   activities           ActivityLog[]
 }
@@ -260,22 +255,7 @@ model MaintenanceRequest {
 
   documents  Document[]
   activities ActivityLog[]
-}
-
-model CaretakerAssignment {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  caretakerId String
-  caretaker   User     @relation(fields: [caretakerId], references: [id])
-  propertyId  String
-  property    Property @relation(fields: [propertyId], references: [id])
-
-  @@unique([caretakerId, propertyId])
-}
-
-model Notification {
+}model Notification {
   id              String    @id @default(uuid())
   type            String
   title           String

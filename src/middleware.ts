@@ -14,10 +14,7 @@ const PUBLIC_ROUTES = [
 const API_PUBLIC_ROUTES = [
   '/api/auth/login',
   '/api/auth/register',
-  '/api/auth/google',
-  '/api/auth/google/signin',
   '/api/auth/callback',
-  '/api/auth/callback/google',
   '/api/auth/logout',
   '/api/payments/palpluss-callback',
   '/api/payments/daraja-callback',

@@ -34,7 +34,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [greeting, setGreeting] = useState('Good morning');
 
-  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
+  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
   const quickActions = [
     ...(isManagement ? MANAGEMENT_ACTIONS : []),
     ...GENERAL_ACTIONS,
@@ -48,11 +48,10 @@ export default function DashboardPage() {
     else setGreeting('Good evening');
   }, [fetchStats]);
 
-  // Role-aware stat cards: managers see the full financial view,
-  // tenants see their own obligations, caretakers see the maintenance workload.
+  // Role-aware stat cards: landlords see the full financial view,
+  // tenants see their own obligations.
   const statCards = !isManagement
-    ? user?.role === UserRole.CARETAKER
-      ? [
+    ? [
           {
             label: 'Pending Maintenance',
             value: stats?.pendingMaintenance ?? 0,
@@ -90,44 +89,7 @@ export default function DashboardPage() {
             trendUp: false,
           },
         ]
-      : [
-          {
-            label: 'Amount Due',
-            value: formatCurrency(stats?.outstandingBalances ?? 0),
-            icon: Wallet,
-            color: 'text-amber-600',
-            bg: 'bg-amber-50',
-            trend: 'Your outstanding balance',
-            trendUp: false,
-          },
-          {
-            label: 'Pending Maintenance',
-            value: stats?.pendingMaintenance ?? 0,
-            icon: Wrench,
-            color: 'text-emerald-600',
-            bg: 'bg-emerald-50',
-            trend: 'Open requests',
-            trendUp: true,
-          },
-          {
-            label: 'My Payments',
-            value: stats?.recentPayments?.length ?? 0,
-            icon: FileText,
-            color: 'text-blue-600',
-            bg: 'bg-blue-50',
-            trend: 'Recorded this period',
-            trendUp: true,
-          },
-          {
-            label: 'My Room Occupied',
-            value: formatPercentage(stats?.occupancyRate ?? 0),
-            icon: TrendingUp,
-            color: 'text-purple-600',
-            bg: 'bg-purple-50',
-            trend: 'Your allocated room',
-            trendUp: true,
-          },
-        ]
+
     : [
         {
           label: 'Total Properties',

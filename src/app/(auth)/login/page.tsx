@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AuthLayout } from '@/components/layout/auth-layout';
 import { useAuth } from '@/hooks/useAuth';
-import { GoogleSignInButton } from '@/components/auth/google-sign-in-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Mail, Lock, Eye, EyeOff, Phone } from 'lucide-react';
@@ -26,17 +25,7 @@ function LoginForm() {
   useEffect(() => {
     const error = params.get('error');
     if (error) {
-      if (error === 'google_not_configured') {
-        toast.error('Google sign-in is not configured in environment variables.');
-      } else if (error === 'token_exchange_failed') {
-        toast.error('Google token exchange failed. Check client secret in .env.');
-      } else if (error === 'access_denied') {
-        toast.error('Google sign-in was cancelled.');
-      } else if (error === 'invalid_auth_callback') {
-        toast.error('Invalid authentication callback.');
-      } else {
-        toast.error(`Google sign-in error: ${error}`);
-      }
+      toast.error(error);
     }
   }, [params]);
 
@@ -121,40 +110,6 @@ function LoginForm() {
           Sign In
         </Button>
       </form>
-
-      <div className="relative my-4">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-[#2a2a3e]" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase tracking-[0.2em] text-gray-500">
-          <span className="bg-[#0f0f1a] px-2">Or continue with</span>
-        </div>
-      </div>
-
-      <GoogleSignInButton
-        label="Continue with Google"
-        className="w-full"
-        onSuccess={async (credential) => {
-          const res = await fetch('/api/auth/google', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ credential }),
-          });
-
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok || (data && data.success === false)) {
-            throw new Error((data as { error?: string }).error || 'Google sign-in failed');
-          }
-          // Redirect after successful sign in
-          window.location.href = redirectTo;
-        }}
-        onError={(message) => {
-          if (message) {
-            toast.error(message);
-          }
-        }}
-      />
 
       <p className="text-center text-sm text-gray-500">
         Don&apos;t have an account?{' '}

@@ -3,8 +3,6 @@
 export enum UserRole {
   SUPER_ADMIN = 'SUPER_ADMIN',
   LANDLORD = 'LANDLORD',
-  MANAGER = 'MANAGER',
-  CARETAKER = 'CARETAKER',
   TENANT = 'TENANT',
 }
 
@@ -116,9 +114,7 @@ export interface Property {
   expenses: number;
   images: string[];
   ownerId: string;
-  managerId?: string | null;
   owner?: User;
-  manager?: User;
   units?: Unit[];
   createdAt: Date;
   updatedAt: Date;
@@ -486,8 +482,6 @@ export const LEASE_STATUS_LABELS: Record<LeaseStatus, string> = {
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.SUPER_ADMIN]: 'Super Admin',
   [UserRole.LANDLORD]: 'Landlord',
-  [UserRole.MANAGER]: 'Property Manager',
-  [UserRole.CARETAKER]: 'Caretaker',
   [UserRole.TENANT]: 'Tenant',
 };
 

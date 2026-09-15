@@ -11,7 +11,7 @@ const createUserSchema = z.object({
   email: z.string().email('Invalid email address'),
   phone: z.string().optional().or(z.literal('')),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-  role: z.enum(['SUPER_ADMIN', 'LANDLORD', 'MANAGER', 'CARETAKER', 'TENANT']),
+  role: z.enum(['SUPER_ADMIN', 'LANDLORD', 'TENANT']),
 });
 
 const USER_SELECT = {
