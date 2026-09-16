@@ -15,8 +15,9 @@ import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { UserRole } from '@/types';
 import {
   Users, Search, Phone, Mail, DoorOpen,
-  Landmark, RefreshCw, Inbox, UserCog, UserPlus,
+  Landmark, RefreshCw, Inbox, UserCog, UserPlus, Send,
 } from 'lucide-react';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface TenantRow {
   id: string;
@@ -54,7 +55,7 @@ interface UnitOption {
 
 export default function TenantsPage() {
   const { user } = useAuth();
-  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
+  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,6 +68,7 @@ export default function TenantsPage() {
   const [assigning, setAssigning] = useState(false);
 
   // Add Tenant modal (add a tenant and allocate a room in one step)
+  const [mailOpen, setMailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [addForm, setAddForm] = useState({
@@ -214,6 +216,10 @@ export default function TenantsPage() {
             <p className="text-gray-500 mt-1">Assign units to tenants so each one pays for their own unit</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             <button
               onClick={fetchTenants}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
@@ -504,6 +510,7 @@ export default function TenantsPage() {
           </div>
         </form>
       </Modal>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

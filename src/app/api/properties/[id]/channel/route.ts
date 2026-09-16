@@ -47,7 +47,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     if (!property) {
       return NextResponse.json({ success: false, error: 'Property not found' }, { status: 404 });
     }
-    if (session.role !== 'SUPER_ADMIN' && property.ownerId !== session.userId && property.managerId !== session.userId) {
+    if (session.role !== 'SUPER_ADMIN' && property.ownerId !== session.userId) {
       return NextResponse.json({ success: false, error: 'You do not own this property' }, { status: 403 });
     }
 
@@ -134,7 +134,7 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
     if (!property) {
       return NextResponse.json({ success: false, error: 'Property not found' }, { status: 404 });
     }
-    if (session.role !== 'SUPER_ADMIN' && property.ownerId !== session.userId && property.managerId !== session.userId) {
+    if (session.role !== 'SUPER_ADMIN' && property.ownerId !== session.userId) {
       return NextResponse.json({ success: false, error: 'You do not own this property' }, { status: 403 });
     }// Best-effort delete on PalPluss; keep going even if it fails (the channel
 // may already be gone) — the property row is the source of truth.

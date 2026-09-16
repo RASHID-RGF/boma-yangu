@@ -70,10 +70,7 @@ export async function GET() {
       session.role === 'SUPER_ADMIN'
         ? {}
         : {
-            OR: [
-              { ownerId: session.userId },
-              { managerId: session.userId },
-            ],
+            ownerId: session.userId,
           };
 
     const properties = await prisma.property.findMany({

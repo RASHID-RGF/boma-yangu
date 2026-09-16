@@ -27,11 +27,7 @@ export async function GET(request: Request) {
     // Scope to the landlord's own properties (or all for super admin).
     if (session.role !== 'SUPER_ADMIN') {
       const properties = await prisma.property.findMany({
-        where: {
-          OR: [
-            { ownerId: session.userId },
-            { managerId: session.userId },
-          ],
+        where: {            ownerId: session.userId,
         },
         select: { id: true },
       });

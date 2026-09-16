@@ -41,11 +41,11 @@ export async function GET() {
     });
 
     // Contacts to pick from when composing. Tenants can only message the estate team
-    // (management + caretaker); staff can message anyone except themselves.
+    // (landlord); staff can message anyone except themselves.
     const contacts = await prisma.user.findMany({
       where: isManagementRole(session.role)
         ? { id: { not: session.userId } }
-        : { id: { not: session.userId }, role: { in: ['LANDLORD', 'MANAGER', 'SUPER_ADMIN', 'CARETAKER'] } },
+        : { id: { not: session.userId }, role: { in: ['LANDLORD', 'SUPER_ADMIN'] } },
       select: { id: true, firstName: true, lastName: true, role: true },
       orderBy: { firstName: 'asc' },
     });

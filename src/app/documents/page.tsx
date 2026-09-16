@@ -14,8 +14,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   FolderOpen, FileText, FileSignature, File, Download, RefreshCw, ShieldCheck,
-  Receipt, Plus, ExternalLink,
+  Receipt, Plus, ExternalLink, Mail,
 } from 'lucide-react';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface DocumentRow {
   id: string;
@@ -65,13 +66,14 @@ const EMPTY_FORM = { name: '', type: 'OTHER', url: '', tenantId: '' };
 
 export default function DocumentsPage() {
   const { user } = useAuth();
-  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
+  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [stats, setStats] = useState<{ count: number; byType: Record<string, number> }>({ count: 0, byType: {} });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Add Document modal
+  const [mailOpen, setMailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -154,6 +156,10 @@ export default function DocumentsPage() {
             <p className="text-gray-500 mt-1">{isManagement ? 'All documents on file' : 'Your leases, IDs and official documents'}</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             <button
               onClick={fetchDocuments}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
@@ -313,6 +319,7 @@ export default function DocumentsPage() {
           </div>
         </form>
       </Modal>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

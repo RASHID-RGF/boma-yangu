@@ -13,8 +13,9 @@ import { formatCurrency } from '@/lib/utils/format';
 import { isVacantUnitStatus, normalizeUnitStatus } from '@/lib/utils/room-assignment';
 import { UNIT_STATUS_LABELS, UserRole } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 import {
-  DoorOpen, Search, Home, Users, Landmark, RefreshCw, Inbox, UserPlus, Phone, Mail, Plus, Wallet,
+  DoorOpen, Search, Home, Users, Landmark, RefreshCw, Inbox, UserPlus, Phone, Mail, Plus, Wallet, Send,
 } from 'lucide-react';
 
 interface UnitRow {
@@ -64,8 +65,7 @@ export default function UnitsPage() {
   const isManagement =
     !!user &&
     (user.role === UserRole.SUPER_ADMIN ||
-      user.role === UserRole.LANDLORD ||
-      user.role === UserRole.MANAGER);
+      user.role === UserRole.LANDLORD);
 
   const [units, setUnits] = useState<UnitRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,6 +88,7 @@ export default function UnitsPage() {
   });
 
   // Add-unit modal (create a vacant room on an existing property)
+  const [mailOpen, setMailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
   const [adding, setAdding] = useState(false);
@@ -275,6 +276,10 @@ export default function UnitsPage() {
             <p className="text-gray-500 mt-1">All units — assign tenants to units so they pay for their own unit</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             {isManagement && (
               <Button className="gap-2" onClick={openAddUnit}>
                 <Plus className="w-4 h-4" />
@@ -648,6 +653,7 @@ export default function UnitsPage() {
           </div>
         </form>
       </Modal>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

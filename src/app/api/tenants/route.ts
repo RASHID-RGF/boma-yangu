@@ -11,6 +11,7 @@ import { isManagementRole } from '@/lib/auth/rbac';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
+import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 
@@ -37,10 +38,7 @@ export async function GET() {
         session.role === 'SUPER_ADMIN'
           ? {}
           : {
-              OR: [
-                { ownerId: session.userId },
-                { managerId: session.userId },
-              ],
+            ownerId: session.userId,
             };
 
       // Include tenants on the landlord's properties AND tenants with no
@@ -72,13 +70,7 @@ export async function GET() {
                   // assigned to that property — the two people each tenant is
                   // linked to through their unit.
                   owner: { select: { firstName: true, lastName: true, email: true, phone: true } },
-                  caretakerAssignments: {
-                    include: {
-                      caretaker: {
-                        select: { id: true, firstName: true, lastName: true, phone: true },
-                      },
-                    },
-                  },
+
                 },
               },
             },
@@ -265,7 +257,7 @@ export async function POST(request: Request) {
       return created;
     });
 
-    // Tell the tenant which room they got, and tell the landlord.
+    // Tell the tenant which room they got, and tell the landlord (in-app + email).
     try {
       const landlordId = tenant.unit?.property?.ownerId ?? null;
       const roomText = unit
@@ -281,6 +273,20 @@ export async function POST(request: Request) {
             message: `${roomText} has been allocated to you. Open "My Room" to see it and pay your rent.${payLinesSuffix}`, 
           },
         });
+        // Email the tenant about their room allocation.
+        const tenantUser = await prisma.user.findUnique({
+          where: { id: linkedUser.id },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (tenantUser?.email) {
+          await sendPortalNoticeEmail({
+            to: tenantUser.email,
+            recipientName: `${tenantUser.firstName} ${tenantUser.lastName}`.trim() || tenantUser.email,
+            subject: 'You have been allocated a room',
+            content: `${roomText} has been allocated to you. Log in to Boma Yangu to see your room and pay rent.${payLinesSuffix}`,
+            category: 'Room Allocation',
+          });
+        }
       }
 
       if (landlordId && landlordId !== session.userId && unit) {
@@ -292,6 +298,20 @@ export async function POST(request: Request) {
             message: `${tenant.firstName} ${tenant.lastName} was added as the tenant for ${roomText}.`,
           },
         });
+        // Email the landlord about the new tenant.
+        const landlord = await prisma.user.findUnique({
+          where: { id: landlordId },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (landlord?.email) {
+          await sendPortalNoticeEmail({
+            to: landlord.email,
+            recipientName: `${landlord.firstName} ${landlord.lastName}`.trim() || landlord.email,
+            subject: `New tenant on ${unit.unitNumber}`,
+            content: `${tenant.firstName} ${tenant.lastName} was added as the tenant for ${roomText}.`,
+            category: 'Tenant Update',
+          });
+        }
       }
     } catch (notifyError) {
       console.error('Add tenant notification error:', notifyError);

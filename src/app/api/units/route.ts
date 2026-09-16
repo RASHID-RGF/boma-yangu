@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
-import { OPERATIONS_ROLES, isManagementRole } from '@/lib/auth/rbac';
+import { MANAGEMENT_ROLES, isManagementRole } from '@/lib/auth/rbac';
 import { isPalplussConfigured } from '@/lib/payments/finalize';
 import { getPalpluss, PalPlussApiError } from '@/lib/payments/palpluss';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
@@ -15,7 +15,7 @@ export async function GET() {
     }
     // The /units route is open to OPERATIONS_ROLES (management + caretakers),
     // so the API must match.
-    if (!session.role || !(OPERATIONS_ROLES as string[]).includes(session.role)) {
+    if (!session.role || !(MANAGEMENT_ROLES as string[]).includes(session.role)) {
       return NextResponse.json({ success: false, error: 'Insufficient permissions' }, { status: 403 });
     }
 
@@ -24,12 +24,7 @@ export async function GET() {
       session.role === 'SUPER_ADMIN'
         ? {}
         : session.role === 'LANDLORD' || session.role === 'MANAGER'
-          ? {
-              OR: [
-                { ownerId: session.userId },
-                { managerId: session.userId },
-              ],
-            }
+          ? { ownerId: session.userId }
           : {};
 
     const units = await prisma.unit.findMany({
@@ -40,7 +35,6 @@ export async function GET() {
             id: true,
             name: true,
             ownerId: true,
-            managerId: true,
             owner: { select: { firstName: true, lastName: true } },
             mpesaPaybill: true,
             mpesaAccountName: true,
@@ -54,7 +48,6 @@ export async function GET() {
             firstName: true,
             lastName: true,
             phone: true,
-            userId: true,
           },
         },
       },
@@ -121,7 +114,7 @@ export async function POST(request: Request) {
     if (!property) {
       return NextResponse.json({ success: false, error: 'Property not found' }, { status: 404 });
     }
-    if (session.role !== 'SUPER_ADMIN' && property.ownerId !== session.userId && property.managerId !== session.userId) {
+    if (session.role !== 'SUPER_ADMIN' && property.ownerId !== session.userId) {
       return NextResponse.json({ success: false, error: 'You do not own this property' }, { status: 403 });
     }
 

@@ -22,22 +22,31 @@ import { SettingsProvider } from '@/lib/settings/context';
 import { SettingsToggleButton, SettingsPanel } from '@/components/settings/settings-panel';
 
 function FloatingParticles() {
+  const [particles, setParticles] = useState<
+    { id: number; style: React.CSSProperties }[]
+  >([]);
+
+  useEffect(() => {
+    const items = Array.from({ length: 20 }).map((_, i) => ({
+      id: i,
+      style: {
+        width: `${Math.random() * 3 + 1}px`,
+        height: `${Math.random() * 3 + 1}px`,
+        background: 'rgba(226, 183, 20, 0.15)',
+        left: `${Math.random() * 100}%`,
+        top: `${Math.random() * 100}%`,
+        animation: `float ${Math.random() * 6 + 4}s ease-in-out infinite`,
+        animationDelay: `${Math.random() * 5}s`,
+      } as React.CSSProperties,
+    }));
+
+    setParticles(items);
+  }, []);
+
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {[...Array(20)].map((_, i) => (
-        <div
-          key={i}
-          className="absolute rounded-full"
-          style={{
-            width: `${Math.random() * 3 + 1}px`,
-            height: `${Math.random() * 3 + 1}px`,
-            background: 'rgba(226, 183, 20, 0.15)',
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-            animation: `float ${Math.random() * 6 + 4}s ease-in-out infinite`,
-            animationDelay: `${Math.random() * 5}s`,
-          }}
-        />
+      {particles.map((p) => (
+        <div key={p.id} className="absolute rounded-full" style={p.style} />
       ))}
     </div>
   );

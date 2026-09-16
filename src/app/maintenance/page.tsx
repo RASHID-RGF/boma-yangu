@@ -12,7 +12,8 @@ import { Modal } from '@/components/ui/modal';
 import { formatDate } from '@/lib/utils/format';
 import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
-import { Wrench, Plus, RefreshCw, Inbox, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Wrench, Plus, RefreshCw, Inbox, AlertTriangle, CheckCircle2, Mail } from 'lucide-react';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface MaintenanceRow {
   id: string;
@@ -49,13 +50,14 @@ const STATUS_OPTIONS = [
 
 export default function MaintenancePage() {
   const { user } = useAuth();
-  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
+  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
   // Both tenants and management can report issues.
   const canReport = true;
   const [requests, setRequests] = useState<MaintenanceRow[]>([]);
   const [stats, setStats] = useState({ openCount: 0, count: 0, urgentCount: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mailOpen, setMailOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'MEDIUM' });
@@ -157,6 +159,10 @@ export default function MaintenancePage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             <button
               onClick={fetchRequests}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
@@ -331,6 +337,7 @@ export default function MaintenancePage() {
           </div>
         </form>
       </Modal>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

@@ -37,7 +37,7 @@ export async function GET() {
     let managementWhere = {};
     if (isManagementRole(session.role) && session.role !== 'SUPER_ADMIN') {
       const properties = await prisma.property.findMany({
-        where: { OR: [{ ownerId: session.userId }, { managerId: session.userId }] },
+        where: { ownerId: session.userId },
         select: { id: true },
       });
       const propertyIds = properties.map((p) => p.id);
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
     // hidden inside the dashboard alone.
     try {
       const management = await prisma.user.findMany({
-        where: { role: { in: ['LANDLORD', 'MANAGER', 'SUPER_ADMIN'] } },
+        where: { role: { in: ['LANDLORD', 'SUPER_ADMIN'] } },
         select: { id: true, email: true, firstName: true, lastName: true },
       });
       await prisma.notification.createMany({

@@ -11,7 +11,8 @@ import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import { formatDateTime, getInitials } from '@/lib/utils/format';
 import { useAuth } from '@/hooks/useAuth';
-import { MessageSquare, Plus, RefreshCw, Send } from 'lucide-react';
+import { MessageSquare, Plus, RefreshCw, Send, Mail } from 'lucide-react';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface Contact {
   id: string;
@@ -44,6 +45,7 @@ export default function MessagesPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mailOpen, setMailOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({ receiverId: '', receiverEmail: '', subject: '', content: '' });
@@ -123,6 +125,10 @@ export default function MessagesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             <button
               onClick={fetchMessages}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
@@ -214,7 +220,7 @@ export default function MessagesPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title="New Message"
-        subtitle="Message your landlord, manager or caretaker"
+        subtitle="Message your landlord or estate team"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <Select
@@ -265,6 +271,7 @@ export default function MessagesPage() {
           </div>
         </form>
       </Modal>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

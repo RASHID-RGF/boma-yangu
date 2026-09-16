@@ -13,8 +13,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   DoorOpen, Home, Landmark, Phone, Mail, Wallet, Plus, RefreshCw,
-  Inbox, CheckCircle2, UserCog, Smartphone,
+  Inbox, CheckCircle2, UserCog, Smartphone, Send,
 } from 'lucide-react';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 import {
   hasPaymentDetails,
   formatPaymentInstructions,
@@ -97,6 +98,7 @@ export default function MyRoomPage() {
   const [data, setData] = useState<MyRoomData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mailOpen, setMailOpen] = useState(false);
 
   const fetchRoom = useCallback(async () => {
     setLoading(true);
@@ -156,6 +158,10 @@ export default function MyRoomPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             <button
               onClick={fetchRoom}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
@@ -457,6 +463,7 @@ export default function MyRoomPage() {
           </>
         )}
       </div>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

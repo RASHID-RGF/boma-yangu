@@ -14,8 +14,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   FileText, Search, AlertCircle, RefreshCw, Inbox, Plus,
-  CreditCard, Send, Phone,
+  CreditCard, Send, Phone, Mail,
 } from 'lucide-react';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface InvoiceRow {
   id: string;
@@ -69,7 +70,7 @@ const EMPTY_NEW_INVOICE = {
 
 export default function InvoicesPage() {
   const { user } = useAuth();
-  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
+  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [stats, setStats] = useState({ outstanding: 0, count: 0, overdueCount: 0 });
   const [loading, setLoading] = useState(true);
@@ -82,6 +83,7 @@ export default function InvoicesPage() {
   const [paying, setPaying] = useState(false);
 
   // New Invoice modal (management)
+  const [mailOpen, setMailOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [tenants, setTenants] = useState<TenantOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -257,6 +259,10 @@ export default function InvoicesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             <button
               onClick={fetchInvoices}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
@@ -535,6 +541,7 @@ export default function InvoicesPage() {
           </div>
         </form>
       </Modal>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

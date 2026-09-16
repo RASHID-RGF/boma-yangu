@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
-import { isManagementRole, OPERATIONS_ROLES } from '@/lib/auth/rbac';
+import { isManagementRole, MANAGEMENT_ROLES } from '@/lib/auth/rbac';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
+import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
 
 const updateMaintenanceSchema = z.object({
@@ -40,7 +41,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     // If assigning to someone, make sure they exist and are estate staff.
     if (validated.assignedToId) {
       const assignee = await prisma.user.findUnique({ where: { id: validated.assignedToId } });
-      if (!assignee || !(OPERATIONS_ROLES as string[]).includes(assignee.role)) {
+      if (!assignee || !(MANAGEMENT_ROLES as string[]).includes(assignee.role)) {
         return NextResponse.json(
           { success: false, error: 'Assignee must be an estate staff member' },
           { status: 400 }
@@ -76,7 +77,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       },
     });
 
-    // Notify the tenant about the status change.
+    // Notify the tenant about the status change (in-app + email).
     try {
       if (existing.tenant?.userId && data.status) {
         const labels: Record<string, string> = {
@@ -86,14 +87,30 @@ export async function PATCH(request: Request, { params }: { params: { id: string
           COMPLETED: 'completed',
           CANCELLED: 'cancelled',
         };
+        const statusLabel = labels[data.status] || data.status.toLowerCase();
         await prisma.notification.create({
           data: {
             userId: existing.tenant.userId,
             type: 'MAINTENANCE_UPDATE',
             title: `Maintenance update: ${existing.title}`,
-            message: `Your maintenance request "${existing.title}" is now ${labels[data.status] || data.status.toLowerCase()}.`,
+            message: `Your maintenance request "${existing.title}" is now ${statusLabel}.`,
           },
         });
+
+        // Email the tenant so they see the update outside the dashboard.
+        const tenantUser = await prisma.user.findUnique({
+          where: { id: existing.tenant.userId },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (tenantUser?.email) {
+          await sendPortalNoticeEmail({
+            to: tenantUser.email,
+            recipientName: `${tenantUser.firstName} ${tenantUser.lastName}`.trim() || tenantUser.email,
+            subject: `Maintenance update: ${existing.title}`,
+            content: `Your maintenance request "${existing.title}" is now ${statusLabel}.${validated.notes ? ` Notes: ${validated.notes}` : ''}`,
+            category: 'Maintenance',
+          });
+        }
       }
     } catch (notifyError) {
       console.error('Maintenance update notification error:', notifyError);

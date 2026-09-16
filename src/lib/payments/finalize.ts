@@ -1,5 +1,6 @@
 import prisma from '@/lib/db/prisma';
 import { generateReceiptNumber } from '@/lib/utils/format';
+import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 
 /** True when real PalPluss credentials are configured (otherwise we simulate). */
 export function isPalplussConfigured(): boolean {
@@ -109,7 +110,7 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
       },
     });
 
-    // Notify the tenant.
+    // Notify the tenant (in-app + email).
     if (payment.tenant?.userId) {
       await tx.notification.create({
         data: {
@@ -119,6 +120,20 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
           message: transactionMessage,
         },
       });
+      // Email the tenant their payment confirmation.
+      const tenantUser = await prisma.user.findUnique({
+        where: { id: payment.tenant.userId },
+        select: { email: true, firstName: true, lastName: true },
+      });
+      if (tenantUser?.email) {
+        await sendPortalNoticeEmail({
+          to: tenantUser.email,
+          recipientName: `${tenantUser.firstName} ${tenantUser.lastName}`.trim() || tenantUser.email,
+          subject: 'Payment received',
+          content: transactionMessage,
+          category: 'Payment',
+        });
+      }
     }
 
     // The landlord is the property owner (the true recipient of rent), falling
@@ -134,6 +149,20 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
           message: transactionMessage,
         },
       });
+      // Email the landlord about the payment received.
+      const landlord = await prisma.user.findUnique({
+        where: { id: landlordId },
+        select: { email: true, firstName: true, lastName: true },
+      });
+      if (landlord?.email) {
+        await sendPortalNoticeEmail({
+          to: landlord.email,
+          recipientName: `${landlord.firstName} ${landlord.lastName}`.trim() || landlord.email,
+          subject: `Payment from ${payment.tenant?.firstName || 'tenant'}`,
+          content: transactionMessage,
+          category: 'Payment',
+        });
+      }
     }
 
     // Send the tenant a message with the transaction details.
@@ -161,27 +190,7 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
       },
     });
 
-    // Notify assigned caretakers (monitor-only): they watch collections for
-    // their properties but are not party to the tenant/landlord messages.
-    const propertyId = payment.unit?.propertyId ?? payment.tenant?.unit?.propertyId ?? null;
-    if (propertyId) {
-      const caretakers = await tx.caretakerAssignment.findMany({
-        where: { propertyId },
-        select: { caretakerId: true },
-      });
-      for (const { caretakerId } of caretakers) {
-        if (caretakerId !== payment.tenant?.userId && caretakerId !== payment.recordedById) {
-          await tx.notification.create({
-            data: {
-              userId: caretakerId,
-              type: 'PAYMENT_RECEIVED',
-              title: `Payment at ${payment.unit?.property?.name || 'your property'}`,
-              message: transactionMessage,
-            },
-          });
-        }
-      }
-    }
+
 
     return paid;
     },

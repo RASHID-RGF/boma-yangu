@@ -9,6 +9,10 @@ import {
   PalPlussApiError,
   isValidSafaricomPhoneNumber,
 } from '@/lib/payments/palpluss';
+import {
+  stkPush as darajaStkPush,
+  isDarajaConfigured,
+} from '@/lib/payments/daraja';
 import { finalizePayment, isPalplussConfigured, simulateTransactionCode } from '@/lib/payments/finalize';
 import { resolveChannelId } from '@/lib/payments/palpluss';
 import { z } from 'zod';
@@ -43,8 +47,7 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // TENANT sees only their own payments; management sees everything;
-    // CARETAKER sees payments for the properties they are assigned to.
+    // TENANT sees only their own payments; management sees everything.
     // Self-registered tenant accounts get a Tenant profile auto-created here so
     // they are never stuck with a dead-end "no linked tenant" error.
     const tenantRecord = session.role === 'TENANT' ? await ensureTenantRecord(session.userId) : null;
@@ -58,26 +61,12 @@ export async function GET() {
       });
     }
 
-    // Caretakers: resolve the property ids they are assigned to so they can
-    // monitor collections without seeing the whole estate.
-    let caretakerPropertyIds: string[] | null = null;
-    if (session.role === 'CARETAKER') {
-      const assignments = await prisma.caretakerAssignment.findMany({
-        where: { caretakerId: session.userId },
-        select: { propertyId: true },
-      });
-      caretakerPropertyIds = assignments.map((a) => a.propertyId);
-    }
-
     // Scope to the landlord's own properties (or all for super admin).
     let managementPropertyFilter: any = null;
     if (isManagementRole(session.role) && session.role !== 'SUPER_ADMIN') {
       const properties = await prisma.property.findMany({
         where: {
-          OR: [
-            { ownerId: session.userId },
-            { managerId: session.userId },
-          ],
+          ownerId: session.userId,
         },
         select: { id: true },
       });
@@ -87,11 +76,9 @@ export async function GET() {
     const payments = await prisma.payment.findMany({
       where: tenantRecord
         ? { tenantId: tenantRecord.id }
-        : caretakerPropertyIds
-          ? { unit: { propertyId: { in: caretakerPropertyIds } } }
-          : managementPropertyFilter
-            ? { unit: { propertyId: { in: managementPropertyFilter } } }
-            : {},
+        : managementPropertyFilter
+          ? { unit: { propertyId: { in: managementPropertyFilter } } }
+          : {},
       orderBy: { paymentDate: 'desc' },
       include: {
         tenant: { select: { firstName: true, lastName: true } },
@@ -134,14 +121,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const validated = createPaymentSchema.parse(body);
 
-    // Caretakers have monitor-only access to payments: they can watch
-    // collections for their assigned properties but can never record money.
-    if (session.role === 'CARETAKER') {
-      return NextResponse.json(
-        { success: false, error: 'Caretakers can monitor payments but cannot record them. Ask the manager or landlord.' },
-        { status: 403 }
-      );
-    }
+
 
     const isTenant = !isManagementRole(session.role);
 
@@ -252,11 +232,12 @@ export async function POST(request: Request) {
       amount = validated.amount!;
     }
 
+    // Prefer the phone number the user typed in the payment form for STK
+    // pushes. Only fall back to the stored tenant phone (or invoice user's
+    // phone) when the user did not provide one.
+    const preferredPhone = validated.phoneNumber?.trim() || null;
     const phoneNumber =
-      validated.phoneNumber ||
-      (invoice ? invoice.tenant?.phone : null) ||
-      tenantRecordPhone ||
-      null;
+      preferredPhone || tenantRecordPhone || (invoice ? invoice.tenant?.phone : null) || null;
 
     // Create the payment record (PENDING until confirmed).
     // Tenants always pay via M-Pesa — the method is forced so a tenant-supplied
@@ -309,14 +290,15 @@ export async function POST(request: Request) {
 
     console.log('[Payment] Resolved phone:', phoneNumber, 'tenantId:', tenantId, 'unitId:', unitId);
 
-    // M-Pesa path: push an STK prompt to the tenant's phone. Tenants always go
-    // through the configured M-Pesa provider (Daraja first, then PalPluss) —
-    // they can never self-confirm a payment by passing a method.
+    // M-Pesa path: push an STK prompt to the tenant's phone. The phone
+    // number MUST be the one the user entered — the STK prompt is sent to
+    // exactly that number so the right person receives the PIN prompt.
     if (isTenant) {
-      const phone = phoneNumber || '';
+      // Ensure the STK prompt is targeted at the phone the tenant entered.
+      const phone = (preferredPhone || tenantRecordPhone || '') as string;
       if (!phone) {
         return NextResponse.json(
-          { success: false, error: 'Enter your M-Pesa phone number' },
+          { success: false, error: 'Enter your M-Pesa phone number to receive the payment prompt' },
           { status: 400 }
         );
       }
@@ -333,8 +315,36 @@ export async function POST(request: Request) {
         ? invoice.invoiceNumber
         : unitId
           ? `RENT-${unitId.slice(-5).toUpperCase()}`
-          : 'RENT';
+          : 'RENT';      // ---- STK Push: try Daraja (Safaricom) first, then PalPluss ----
+      const accountRef = accountReference;
 
+      // 1) Try Daraja (Safaricom official STK push) first
+      if (isDarajaConfigured()) {
+        try {
+          console.log('[Payment] Daraja STK push → phone:', phone, 'amount:', amount, 'ref:', accountRef);
+          const stk = await darajaStkPush(phone, amount, accountRef, 'Rent payment');
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { checkoutRequestId: stk.transactionId },
+          });
+          return NextResponse.json(
+            {
+              success: true,
+              data: {
+                paymentId: payment.id,
+                status: 'PENDING',
+                message: stk.customerMessage || 'Payment prompt sent. Enter your PIN to complete the payment.',
+              },
+            },
+            { status: 201 }
+          );
+        } catch (darajaError) {
+          console.error('[Payment] Daraja STK push failed, trying PalPluss:', darajaError);
+          // Fall through to PalPluss below
+        }
+      }
+
+      // 2) Try PalPluss (multi-landlord collection channels)
       if (isPalplussConfigured()) {
         try {
           // Route the rent to the property's own PalPluss channel (the
@@ -353,8 +363,8 @@ export async function POST(request: Request) {
           let lastError: unknown;
           for (const channelId of channelIdsToTry) {
             try {
-              console.log('[Payment] PalPluss STK push → phone:', phone, 'amount:', amount, 'ref:', accountReference, 'channel:', channelId ?? '(default)');
-              stk = await palplussStkPush(phone, amount, accountReference, 'Rent payment', channelId);
+              console.log('[Payment] PalPluss STK push → phone:', phone, 'amount:', amount, 'ref:', accountRef, 'channel:', channelId ?? '(default)');
+              stk = await palplussStkPush(phone, amount, accountRef, 'Rent payment', channelId);
               break;
             } catch (error) {
               lastError = error;
@@ -386,43 +396,29 @@ export async function POST(request: Request) {
             { status: 201 }
           );
         } catch (stkError) {
+          console.error('[Payment] PalPluss STK push failed:', stkError);
           await prisma.payment.update({
             where: { id: payment.id },
             data: { status: 'FAILED' },
           });
           if (stkError instanceof PalPlussApiError) {
-            console.error('PalPluss STK push error:', stkError.code, stkError.message);
             return NextResponse.json(
               { success: false, error: stkError.message || 'Could not reach the payment provider. Please try again.' },
               { status: stkError.httpStatus }
             );
           }
-          console.error('STK push error:', stkError);
-          return NextResponse.json(
-            { success: false, error: 'Could not reach the payment provider. Please try again.' },
-            { status: 502 }
-          );
+          return NextResponse.json({ success: false, error: 'Could not reach the payment provider. Please try again.' }, { status: 502 });
         }
       }
 
-      // Simulation mode (no live provider configured): confirm immediately with
-      // a simulated transaction code so the full flow works end to end.
-      const completed = await finalizePayment(payment.id, {
-        transactionCode: simulateTransactionCode(),
-        phoneNumber: phone,
-      });
+      // 3) No live STK provider configured. Reject the payment instead of
+      //    silently simulating a completed transaction so tenants always
+      //    receive a real M-Pesa STK prompt in production-like setups.
+      console.error('[Payment] No STK provider configured — aborting STK push');
+      await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
       return NextResponse.json(
-        {
-          success: true,
-          data: {
-            paymentId: payment.id,
-            status: 'COMPLETED',
-            transactionCode: completed.transactionCode,
-            receiptNumber: completed.receiptNumber,
-            message: 'Payment recorded (simulated provider). Receipt generated.',
-          },
-        },
-        { status: 201 }
+        { success: false, error: 'No STK provider configured. Contact the administrator to enable Daraja or PalPluss.' },
+        { status: 503 }
       );
     }
 

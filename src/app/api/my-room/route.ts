@@ -73,13 +73,7 @@ export async function GET() {
             owner: {
               select: { id: true, firstName: true, lastName: true, email: true, phone: true },
             },
-            caretakerAssignments: {
-              include: {
-                caretaker: {
-                  select: { id: true, firstName: true, lastName: true, email: true, phone: true },
-                },
-              },
-            },
+
           },
         },
       },
@@ -163,7 +157,7 @@ export async function GET() {
           : null,
         paymentDetails,
         landlord: property?.owner ?? null,
-        caretakers: property?.caretakerAssignments?.map((a) => a.caretaker) ?? [],
+        caretakers: [],
         lease,
         payments,
         summary: { outstanding, totalPaid, entryCount: invoices.length + payments.length },

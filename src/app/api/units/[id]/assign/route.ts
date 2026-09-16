@@ -7,6 +7,7 @@ import { deriveNameFromEmail } from '@/lib/utils/contact';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
+import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
 import type { Prisma, Tenant } from '@prisma/client';
 
@@ -217,10 +218,16 @@ export async function POST(request: Request, { params }: { params: { id: string 
     });
 
     // Tell the tenant about their room (when we can reach their account) and
-    // tell the landlord.
+    // tell the landlord (in-app + email).
     try {
       const landlordId = unit.property?.ownerId || null;
       const roomText = `Room ${unit.unitNumber} at ${unit.property?.name || 'the estate'}`;
+
+      const tenantMessage =
+        `${roomText} has been allocated to you. Open "My Room" to see it and pay your rent.` +
+        (payLines.length > 0
+          ? ` Rent is paid to: ${payLines.join('; ')}. When you tap Pay, the M-Pesa prompt is sent to your phone — just enter your PIN.`
+          : '');
 
       if (userId) {
         await prisma.notification.create({
@@ -228,24 +235,49 @@ export async function POST(request: Request, { params }: { params: { id: string 
             userId,
             type: 'ANNOUNCEMENT',
             title: createdNew ? 'You have been allocated a room' : 'Room allocated',
-            message:
-              `${roomText} has been allocated to you. Open "My Room" to see it and pay your rent.` +
-              (payLines.length > 0
-                ? ` Rent is paid to: ${payLines.join('; ')}. When you tap Pay, the M-Pesa prompt is sent to your phone — just enter your PIN.`
-                : ''),
+            message: tenantMessage,
           },
         });
+        // Email the tenant about their room allocation.
+        const tenantUser = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (tenantUser?.email) {
+          await sendPortalNoticeEmail({
+            to: tenantUser.email,
+            recipientName: `${tenantUser.firstName} ${tenantUser.lastName}`.trim() || tenantUser.email,
+            subject: createdNew ? 'You have been allocated a room' : 'Room allocated',
+            content: tenantMessage,
+            category: 'Room Allocation',
+          });
+        }
       }
 
       if (landlordId && landlordId !== session.userId) {
+        const landlordMessage = `${assigned.firstName} ${assigned.lastName} was allocated ${roomText}.`;
         await prisma.notification.create({
           data: {
             userId: landlordId,
             type: 'ANNOUNCEMENT',
             title: `Room ${unit.unitNumber} allocated`,
-            message: `${assigned.firstName} ${assigned.lastName} was allocated ${roomText}.`,
+            message: landlordMessage,
           },
         });
+        // Email the landlord about the allocation.
+        const landlord = await prisma.user.findUnique({
+          where: { id: landlordId },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (landlord?.email) {
+          await sendPortalNoticeEmail({
+            to: landlord.email,
+            recipientName: `${landlord.firstName} ${landlord.lastName}`.trim() || landlord.email,
+            subject: `Room ${unit.unitNumber} allocated`,
+            content: landlordMessage,
+            category: 'Room Allocation',
+          });
+        }
       }
     } catch (notifyError) {
       console.error('Assign room notification error:', notifyError);

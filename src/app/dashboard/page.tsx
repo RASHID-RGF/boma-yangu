@@ -7,15 +7,14 @@ import { Badge, STATUS_VARIANTS } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useDashboardStore } from '@/store/dashboard';
 import { formatCurrency, formatDate, formatPercentage } from '@/lib/utils/format';
-import type { DashboardStats } from '@/types';
-import {
-  Building2, DoorOpen, Users, Wallet, TrendingUp, AlertCircle, FileText,
+import type { DashboardStats } from '@/types';import { Building2, DoorOpen, Users, Wallet, TrendingUp, AlertCircle, FileText,
   Wrench, ArrowUpRight, ArrowDownRight, Plus, MoreHorizontal,
-  CalendarDays, Download, RefreshCw,
+  CalendarDays, Download, RefreshCw, Mail,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 // Management-only quick actions (properties/tenants/payments are landlord & manager sections)
 const MANAGEMENT_ACTIONS = [
@@ -34,6 +33,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [greeting, setGreeting] = useState('Good morning');
 
+  const [mailOpen, setMailOpen] = useState(false);
   const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
   const quickActions = [
     ...(isManagement ? MANAGEMENT_ACTIONS : []),
@@ -163,6 +163,10 @@ export default function DashboardPage() {
             <Button variant="outline" size="sm" onClick={fetchStats}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)}>
+              <Mail className="w-4 h-4 mr-2" />
+              Send Mail
             </Button>
             {isManagement && (
               <Link href="/reports">
@@ -363,6 +367,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

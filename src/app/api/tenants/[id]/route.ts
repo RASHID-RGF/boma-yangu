@@ -7,6 +7,7 @@ import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
+import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 
 const updateTenantSchema = z.object({
   // Assign (or change) the tenant's unit. Pass null/'' to remove the unit.
@@ -181,35 +182,65 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
     }
 
-    // ---- Notifications ----
+    // ---- Notifications (in-app + email) ----
     try {
       const landlordId = updated.unit?.property?.ownerId || null;
 
       // Tell the tenant about their new unit (the tenant is now linked to the
       // landlord who owns the unit's property).
       if (tenantUserId && unitChanged) {
+        const unitMessage = newUnit
+          ? `You have been assigned unit ${newUnit.unitNumber} at ${newUnitProperty?.name || 'the estate'}. Open "My Room" to see it and pay rent for it.${payLinesSuffix}`
+          : 'Your unit assignment was removed. Contact management if this is unexpected.';
         await prisma.notification.create({
           data: {
             userId: tenantUserId,
             type: 'ANNOUNCEMENT',
             title: 'Unit assigned',
-            message: newUnit
-              ? `You have been assigned unit ${newUnit.unitNumber} at ${newUnitProperty?.name || 'the estate'}. Open "My Room" to see it and pay rent for it.${payLinesSuffix}`
-              : 'Your unit assignment was removed. Contact management if this is unexpected.',
+            message: unitMessage,
           },
         });
+        // Email the tenant about the unit assignment.
+        const tenantUser = await prisma.user.findUnique({
+          where: { id: tenantUserId },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (tenantUser?.email) {
+          await sendPortalNoticeEmail({
+            to: tenantUser.email,
+            recipientName: `${tenantUser.firstName} ${tenantUser.lastName}`.trim() || tenantUser.email,
+            subject: 'Unit assigned',
+            content: unitMessage,
+            category: 'Room Allocation',
+          });
+        }
       }
 
       // Tell the landlord they have a new tenant on their unit.
       if (landlordId && landlordId !== session.userId && unitChanged && newUnit) {
+        const landlordMessage = `${updated.firstName} ${updated.lastName} was assigned unit ${newUnit.unitNumber} at ${newUnitProperty?.name || 'your property'}.`;
         await prisma.notification.create({
           data: {
             userId: landlordId,
             type: 'ANNOUNCEMENT',
             title: `New tenant on ${newUnit.unitNumber}`,
-            message: `${updated.firstName} ${updated.lastName} was assigned unit ${newUnit.unitNumber} at ${newUnitProperty?.name || 'your property'}.`,
+            message: landlordMessage,
           },
         });
+        // Email the landlord about the new tenant.
+        const landlord = await prisma.user.findUnique({
+          where: { id: landlordId },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (landlord?.email) {
+          await sendPortalNoticeEmail({
+            to: landlord.email,
+            recipientName: `${landlord.firstName} ${landlord.lastName}`.trim() || landlord.email,
+            subject: `New tenant on ${newUnit.unitNumber}`,
+            content: landlordMessage,
+            category: 'Tenant Update',
+          });
+        }
       }
     } catch (notifyError) {
       console.error('Tenant unit-assignment notification error:', notifyError);

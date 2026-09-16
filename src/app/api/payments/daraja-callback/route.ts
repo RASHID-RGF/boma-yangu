@@ -1,85 +1,100 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { finalizePayment } from '@/lib/payments/finalize';
 
-function normalizePhoneNumber(phone: string): string {
-  const digits = phone.trim().replace(/\D/g, '');
+/**
+ * POST /api/payments/daraja-callback
+ *
+ * Safaricom Daraja calls this URL after the tenant completes (or cancels) an
+ * STK push. The body contains the STK result under `Body.stkCallback`.
+ *
+ * We match the CheckoutRequestID to the PENDING payment record and finalize it
+ * as COMPLETED (success) or FAILED (cancelled / timeout).
+ */
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    console.log('[Daraja Callback] Received:', JSON.stringify(body).slice(0, 500));
 
-  if (!digits) {
-    return '';
-  }
+    // Daraja wraps the result in Body.stkCallback
+    const callback = body?.Body?.stkCallback;
+    if (!callback) {
+      console.warn('[Daraja Callback] Missing stkCallback in body');
+      return NextResponse.json({ ResultCode: 0, ResultDesc: 'OK' });
+    }
 
-  if (digits.startsWith('254')) return digits;
-  if (digits.startsWith('0')) return `254${digits.slice(1)}`;
-  return `254${digits}`;
-}
+    const checkoutRequestId = callback.CheckoutRequestID;
+    const resultCode = callback.ResultCode;
+    const resultDesc = callback.ResultDesc || '';
 
-function getCallbackItem(items: Array<{ Name: string; Value: string | number }>, name: string) {
-  return items.find((item) => item.Name === name)?.Value;
-}
+    if (!checkoutRequestId) {
+      console.warn('[Daraja Callback] Missing CheckoutRequestID');
+      return NextResponse.json({ ResultCode: 0, ResultDesc: 'OK' });
+    }
 
-export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-  if (!body?.Body?.stkCallback) {
-    return NextResponse.json({ error: 'Invalid callback payload' }, { status: 400 });
-  }
-
-  const callback = body.Body.stkCallback;
-  const checkoutRequestId = callback.CheckoutRequestID as string | undefined;
-  const resultCode = Number(callback.ResultCode ?? -1);
-  const callbackItems = Array.isArray(callback.CallbackMetadata?.Item) ? callback.CallbackMetadata.Item : [];
-  const phoneNumber = getCallbackItem(callbackItems, 'PhoneNumber') as string | undefined;
-  const amount = Number(getCallbackItem(callbackItems, 'Amount') ?? 0);
-  const receiptCode = (getCallbackItem(callbackItems, 'MpesaReceiptNumber') as string | undefined) || callback.CheckoutRequestID;
-
-  if (!checkoutRequestId) {
-    return NextResponse.json({ error: 'Missing checkout request id' }, { status: 400 });
-  }
-
-  let payment = await prisma.payment.findFirst({
-    where: {
-      status: 'PENDING',
-      checkoutRequestId,
-    },
-  });
-
-  if (!payment && phoneNumber && amount > 0) {
-    const phone = normalizePhoneNumber(String(phoneNumber));
-    const candidates = await prisma.payment.findMany({
+    // Find the PENDING payment that matches this checkout request.
+    const payment = await prisma.payment.findFirst({
       where: {
+        checkoutRequestId,
         status: 'PENDING',
-        checkoutRequestId: null,
-        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
+      include: {
+        invoice: true,
+        tenant: { include: { user: true, unit: { include: { property: true } } } },
+        unit: { include: { property: true } },
+      },
     });
 
-    const matches = candidates.filter((candidate) => {
-      const candidatePhone = candidate.phoneNumber ? normalizePhoneNumber(candidate.phoneNumber) : '';
-      return candidatePhone === phone && Math.round(candidate.amount) === Math.round(amount);
-    });
+    if (!payment) {
+      console.warn('[Daraja Callback] No pending payment found for checkout:', checkoutRequestId);
+      return NextResponse.json({ ResultCode: 0, ResultDesc: 'OK' });
+    }
 
-    payment = matches[0] ?? null;
+    // ResultCode 0 = success; anything else = cancelled / timeout / error.
+    if (resultCode === 0) {
+      // Extract the actual amount paid from callback metadata (Safaricom
+      // sends Amount, MpesaReceiptNumber, etc. in CallbackMetadata).
+      const metadata = callback.CallbackMetadata?.Item || [];
+      const amountPaid = metadata.find((m: any) => m.Name === 'Amount')?.Value;
+      const mpesaReceipt = metadata.find((m: any) => m.Name === 'MpesaReceiptNumber')?.Value;
+      const phoneUsed = metadata.find((m: any) => m.Name === 'PhoneNumber')?.Value;
+
+      console.log('[Daraja Callback] Success — receipt:', mpesaReceipt, 'amount:', amountPaid);
+
+      await finalizePayment(payment.id, {
+        transactionCode: mpesaReceipt || checkoutRequestId,
+        checkoutRequestId,
+        phoneNumber: phoneUsed ? String(phoneUsed) : payment.phoneNumber,
+        amount: amountPaid != null ? Number(amountPaid) : undefined,
+      });
+
+      console.log('[Daraja Callback] Payment finalized:', payment.id);
+    } else {
+      // Payment failed or was cancelled by the user.
+      console.warn('[Daraja Callback] Payment failed — code:', resultCode, 'desc:', resultDesc);
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'FAILED' },
+      });
+
+      // Notify the tenant that their payment failed.
+      if (payment.tenant?.userId) {
+        await prisma.notification.create({
+          data: {
+            userId: payment.tenant.userId,
+            type: 'PAYMENT_RECEIVED',
+            title: 'Payment failed',
+            message: `Your M-Pesa payment of KES ${payment.amount.toLocaleString()} could not be completed. ${resultDesc || 'Please try again.'}`,
+          },
+        });
+      }
+    }
+
+    // Daraja expects a 200 with ResultCode 0 to acknowledge receipt.
+    return NextResponse.json({ ResultCode: 0, ResultDesc: 'OK' });
+  } catch (error) {
+    console.error('[Daraja Callback] Error:', error);
+    // Always return 200 to Daraja so it doesn't retry.
+    return NextResponse.json({ ResultCode: 0, ResultDesc: 'OK' });
   }
-
-  if (!payment) {
-    return NextResponse.json({ error: 'Payment not found' }, { status: 404 });
-  }
-
-  if (resultCode === 0) {
-    await finalizePayment(payment.id, {
-      transactionCode: receiptCode,
-      checkoutRequestId,
-      phoneNumber: phoneNumber ? normalizePhoneNumber(String(phoneNumber)) : payment.phoneNumber,
-      amount,
-    });
-  } else {
-    await prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: 'FAILED' },
-    });
-  }
-
-  return NextResponse.json({ received: true });
 }

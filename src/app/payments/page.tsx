@@ -14,8 +14,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   Wallet, Search, CheckCircle2, Clock, RefreshCw, Inbox, Plus, Receipt,
-  Send, Phone, CreditCard, Banknote, Smartphone,
+  Send, Phone, CreditCard, Banknote, Smartphone, Mail,
 } from 'lucide-react';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 import {
   hasPaymentDetails,
   formatPaymentInstructions,
@@ -82,7 +83,7 @@ function openPayLink(amount: number) {
 
 export default function PaymentsPage() {
   const { user } = useAuth();
-  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD || user.role === UserRole.MANAGER);
+  const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [stats, setStats] = useState({ totalPaid: 0, count: 0, pendingCount: 0 });
   const [loading, setLoading] = useState(true);
@@ -112,6 +113,7 @@ export default function PaymentsPage() {
     })();
   }, [user?.role]);
 
+  const [mailOpen, setMailOpen] = useState(false);
   // Management "Record Payment" modal
   const [recordOpen, setRecordOpen] = useState(false);
   const [tenants, setTenants] = useState<TenantOption[]>([]);
@@ -140,7 +142,7 @@ export default function PaymentsPage() {
   // Lightweight polling feed: watchers (landlord / manager / caretaker) get a
   // live view that refreshes every 10s and pops a toast when a payment lands.
   // Polling (not websockets) keeps this working on serverless deploys.
-  const isWatcher = isManagement || user?.role === UserRole.CARETAKER;
+  const isWatcher = isManagement;
   const knownPaymentIds = useRef<Set<string>>(new Set());
   const firstLoadDone = useRef(false);
 
@@ -223,13 +225,14 @@ export default function PaymentsPage() {
     try {
       const amount = Number(payForm.amount);
       if (!amount || amount <= 0) throw new Error('Enter the amount to pay');
+      if (!payForm.phone.trim()) throw new Error('Enter your M-Pesa phone number to receive the payment prompt');
       const res = await fetch('/api/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           invoiceId: payForm.invoiceId || undefined,
           amount,
-          phoneNumber: payForm.phone || undefined,
+          phoneNumber: payForm.phone.trim(),
         }),
       });
       const result = await res.json();
@@ -256,6 +259,10 @@ export default function PaymentsPage() {
       toast.error('Enter the amount to pay');
       return;
     }
+    if (!payForm.phone.trim()) {
+      toast.error('Enter your M-Pesa phone number to receive the payment prompt');
+      return;
+    }
     setPaying(true);
     try {
       const res = await fetch('/api/payments', {
@@ -264,7 +271,7 @@ export default function PaymentsPage() {
         body: JSON.stringify({
           invoiceId: payForm.invoiceId || undefined,
           amount,
-          phoneNumber: payForm.phone || undefined,
+          phoneNumber: payForm.phone.trim(),
           payViaLink: true,
         }),
       });
@@ -378,6 +385,10 @@ export default function PaymentsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             <button
               onClick={fetchPayments}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
@@ -554,7 +565,7 @@ export default function PaymentsPage() {
             </div>
           )}
           <p className="text-xs text-[#646669]">
-            You&apos;ll receive an M-Pesa STK push on this number — just enter your PIN to pay.{PAY_LINK_URL ? '' : ' In demo mode (no PalPluss API key) the payment is recorded instantly with a simulated transaction code.'}
+            The M-Pesa STK push prompt will be sent to <strong>exactly this number</strong> — enter your PIN on your phone to complete the payment.{PAY_LINK_URL ? '' : ' In demo mode (no PalPluss API key) the payment is recorded instantly with a simulated transaction code.'}
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setPayOpen(false)}>
@@ -632,6 +643,7 @@ export default function PaymentsPage() {
           </div>
         </form>
       </Modal>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

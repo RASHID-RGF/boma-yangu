@@ -26,7 +26,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { useSettings } from '@/lib/settings/context';
-import { MANAGEMENT_ROLES, OPERATIONS_ROLES, FINANCIAL_ROLES, ALL_ROLES, PAYMENT_ROLES } from '@/lib/auth/rbac';
+import { MANAGEMENT_ROLES, FINANCIAL_ROLES, ALL_ROLES } from '@/lib/auth/rbac';
 
 interface NavItem {
   label: string;
@@ -39,10 +39,10 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" />, roles: ALL_ROLES },
   { label: 'My Room', href: '/my-room', icon: <KeyRound className="w-4 h-4" />, roles: [UserRole.TENANT] },
   { label: 'Properties', href: '/properties', icon: <Building2 className="w-4 h-4" />, roles: MANAGEMENT_ROLES },
-  { label: 'Units', href: '/units', icon: <DoorOpen className="w-4 h-4" />, roles: OPERATIONS_ROLES },
+  { label: 'Units', href: '/units', icon: <DoorOpen className="w-4 h-4" />, roles: MANAGEMENT_ROLES },
   { label: 'Tenants', href: '/tenants', icon: <Users className="w-4 h-4" />, roles: MANAGEMENT_ROLES },
-  { label: 'Payments', href: '/payments', icon: <Wallet className="w-4 h-4" />, roles: PAYMENT_ROLES },
-  { label: 'Invoices', href: '/invoices', icon: <FileText className="w-4 h-4" />, roles: PAYMENT_ROLES },
+  { label: 'Payments', href: '/payments', icon: <Wallet className="w-4 h-4" />, roles: FINANCIAL_ROLES },
+  { label: 'Invoices', href: '/invoices', icon: <FileText className="w-4 h-4" />, roles: FINANCIAL_ROLES },
   { label: 'Maintenance', href: '/maintenance', icon: <Wrench className="w-4 h-4" />, roles: ALL_ROLES },
   { label: 'Leases', href: '/leases', icon: <FileSignature className="w-4 h-4" />, roles: MANAGEMENT_ROLES },
   { label: 'Reports', href: '/reports', icon: <BarChart3 className="w-4 h-4" />, roles: MANAGEMENT_ROLES },

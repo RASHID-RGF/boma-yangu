@@ -15,9 +15,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   Building2, Plus, Search, MapPin, Home,
-  Users, MoreHorizontal, Inbox, Wallet,
+  Users, MoreHorizontal, Inbox, Wallet, Mail,
 } from 'lucide-react';
 import Link from 'next/link';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface PropertyRow {
   id: string;
@@ -52,6 +53,7 @@ export default function PropertiesPage() {
 
   // Rent-collection modal: register this property's own till/paybill so rent
   // lands in the landlord's own account (multi-landlord routing).
+  const [mailOpen, setMailOpen] = useState(false);
   const [channelOpen, setChannelOpen] = useState(false);
   const [channelProperty, setChannelProperty] = useState<PropertyRow | null>(null);
   const [savingChannel, setSavingChannel] = useState(false);
@@ -139,12 +141,18 @@ export default function PropertiesPage() {
             <h1 className="text-2xl font-bold text-gray-900">Properties</h1>
             <p className="text-gray-500 mt-1">Manage all your rental properties</p>
           </div>
-          <Link href="/properties/new">
-            <Button className="gap-2">
-              <Plus className="w-4 h-4" />
-              Add Property
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
             </Button>
-          </Link>
+            <Link href="/properties/new">
+              <Button className="gap-2">
+                <Plus className="w-4 h-4" />
+                Add Property
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {/* Filters */}
@@ -302,6 +310,7 @@ export default function PropertiesPage() {
           </div>
         </form>
       </Modal>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

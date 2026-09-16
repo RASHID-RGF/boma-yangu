@@ -6,7 +6,8 @@ import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatDateTime } from '@/lib/utils/format';
-import { Bell, RefreshCw, CheckCheck, Wrench, FileText, AlertCircle, Info } from 'lucide-react';
+import { Bell, RefreshCw, CheckCheck, Wrench, FileText, AlertCircle, Info, Mail } from 'lucide-react';
+import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface NotificationRow {
   id: string;
@@ -37,6 +38,7 @@ const TYPE_COLORS: Record<string, string> = {
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
+  const [mailOpen, setMailOpen] = useState(false);
   const [stats, setStats] = useState({ unreadCount: 0, count: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +106,10 @@ export default function NotificationsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
+              <Mail className="w-4 h-4" />
+              Send Mail
+            </Button>
             <button
               onClick={fetchNotifications}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2a2a3e] text-xs text-[#a0a0a0] hover:bg-[#e2b714]/5 hover:text-[#d4d4d4] transition-all duration-200"
@@ -168,6 +174,7 @@ export default function NotificationsPage() {
           </div>
         )}
       </div>
+      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }
