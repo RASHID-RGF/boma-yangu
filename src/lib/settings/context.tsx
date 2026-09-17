@@ -4,11 +4,13 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 
 export type FontFamily = 'inter' | 'jetbrains-mono' | 'system';
 export type ContrastLevel = 'low' | 'medium' | 'high';
+export type ThemeMode = 'light' | 'dark' | 'system';
 
 export interface Settings {
   fontFamily: FontFamily;
   fontSize: 'small' | 'medium' | 'large';
   contrast: ContrastLevel;
+  theme: ThemeMode;
 }
 
 interface SettingsContextType {
@@ -16,6 +18,7 @@ interface SettingsContextType {
   setFontFamily: (font: FontFamily) => void;
   setFontSize: (size: 'small' | 'medium' | 'large') => void;
   setContrast: (contrast: ContrastLevel) => void;
+  setTheme: (theme: ThemeMode) => void;
   resetSettings: () => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
@@ -25,6 +28,7 @@ const DEFAULTS: Settings = {
   fontFamily: 'inter',
   fontSize: 'medium',
   contrast: 'medium',
+  theme: 'dark',
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -70,13 +74,46 @@ export function applySettings(settings: Settings) {
   const contrast = CONTRAST_MAP[settings.contrast];
   root.style.setProperty('--settings-text', contrast.text);
   root.style.setProperty('--settings-muted', contrast.muted);
-  root.style.setProperty('--settings-bg', contrast.bg);
+  root.style.setProperty('--settings-bg', contrast.bg); // Ensure theme sets inline CSS vars
 
   // Apply global filter for real contrast effect across the entire page
   const content = document.querySelector('[data-settings-root]') as HTMLElement | null;
   if (content) {
     content.style.filter = `brightness(${contrast.brightness}) contrast(${contrast.contrast})`;
   }
+  // Apply theme mode: respect explicit theme or system preference
+  const applyTheme = (mode: ThemeMode) => {
+    let used: 'light' | 'dark' = 'dark';
+    if (mode === 'system') {
+      const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      used = prefersLight ? 'light' : 'dark';
+    } else {
+      used = mode;
+    }
+    root.dataset.theme = used;
+  };
+  applyTheme(settings.theme);
+  // Apply theme mode: set base colors inline so they take effect over CSS rules
+  const resolveTheme = (mode: ThemeMode): 'light' | 'dark' => {
+    if (mode === 'system') {
+      const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      return prefersLight ? 'light' : 'dark';
+    }
+    return mode;
+  };
+
+  const usedTheme = resolveTheme(settings.theme);
+  const THEME_MAP: Record<'light' | 'dark', { text: string; muted: string; bg: string }> = {
+    light: { text: '#0f172a', muted: '#475569', bg: '#f8fafc' },
+    dark: { text: '#d4d4d4', muted: '#646669', bg: '#0f0f1a' },
+  };
+
+  const themeColors = THEME_MAP[usedTheme];
+  // Override color variables with theme values (inline styles win over CSS selectors)
+  root.style.setProperty('--settings-text', themeColors.text);
+  root.style.setProperty('--settings-muted', themeColors.muted);
+  root.style.setProperty('--settings-bg', themeColors.bg);
+  root.dataset.theme = usedTheme;
 }
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
@@ -116,6 +153,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const setTheme = useCallback((theme: ThemeMode) => {
+    setSettings(prev => {
+      const next = { ...prev, theme };
+      applySettings(next);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
   const resetSettings = useCallback(() => {
     setSettings(DEFAULTS);
     applySettings(DEFAULTS);
@@ -123,7 +169,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SettingsContext.Provider value={{ settings, setFontFamily, setFontSize, setContrast, resetSettings, isOpen, setIsOpen }}>
+    <SettingsContext.Provider value={{ settings, setFontFamily, setFontSize, setContrast, setTheme, resetSettings, isOpen, setIsOpen }}>
       {children}
     </SettingsContext.Provider>
   );

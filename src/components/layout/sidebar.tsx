@@ -89,9 +89,11 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         isCollapsed ? 'justify-center' : 'justify-start'
       )}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[#e2b714]/10 border border-[#e2b714]/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-[#e2b714] font-bold text-sm">BY</span>
-          </div>
+          <img
+            src="/profile.jpeg"
+            alt="Boma Yangu"
+            className="w-8 h-8 rounded-lg object-cover border border-[#e2b714]/20 flex-shrink-0"
+          />
           {!isCollapsed && (
             <div>
               <h1 className="font-bold text-sm leading-tight text-[#d4d4d4]">Boma Yangu</h1>

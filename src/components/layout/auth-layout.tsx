@@ -28,9 +28,11 @@ export function AuthLayout({ children, title, subtitle }: AuthLayoutProps) {
 
       {/* Logo */}
       <Link href="/" className="flex items-center gap-3 mb-8 relative z-10">
-        <div className="w-12 h-12 rounded-2xl bg-[#e2b714]/10 flex items-center justify-center border border-[#e2b714]/20">
-          <Home className="w-6 h-6 text-[#e2b714]" />
-        </div>
+        <img
+          src="/profile.jpeg"
+          alt="Boma Yangu"
+          className="w-12 h-12 rounded-2xl object-cover border border-[#e2b714]/20"
+        />
         <div>
           <h1 className="text-lg font-bold text-[#d4d4d4]">Boma Yangu</h1>
           <p className="text-xs text-[#e2b714]/70 font-medium">Rental Management</p>

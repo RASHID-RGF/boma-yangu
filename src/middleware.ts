@@ -17,7 +17,6 @@ const API_PUBLIC_ROUTES = [
   '/api/auth/callback',
   '/api/auth/logout',
   '/api/payments/palpluss-callback',
-  '/api/payments/daraja-callback',
 ];
 
 const AUTH_ONLY_UNAUTHENTICATED = [
@@ -34,7 +33,9 @@ export async function middleware(request: NextRequest) {
   if (
     normalizedPath.startsWith('/_next') ||
     normalizedPath.startsWith('/images') ||
-    normalizedPath.startsWith('/favicon')
+    normalizedPath.startsWith('/favicon') ||
+    // Allow direct access to static files in `public/` (images, icons, etc.)
+    /\.(png|jpe?g|gif|svg|webp|avif|ico)$/i.test(normalizedPath)
   ) {
     return NextResponse.next();
   }

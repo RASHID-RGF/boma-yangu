@@ -21,6 +21,8 @@ import {
   hasPaymentDetails,
   formatPaymentInstructions,
 } from '@/lib/utils/payment-details';
+import { useStkWait } from '@/hooks/useStkWait';
+import { Smartphone as SmartphoneIcon } from 'lucide-react';
 
 interface PaymentRow {
   id: string;
@@ -97,6 +99,11 @@ export default function PaymentsPage() {
   const [payForm, setPayForm] = useState({ invoiceId: '', amount: '', phone: '' });
   // Where the tenant's rent goes (the landlord's collection details).
   const [destination, setDestination] = useState<PaymentDestination | null>(null);
+
+  // "Waiting for M-Pesa PIN" state: holds the modal open with a live 60s
+  // countdown while the tenant enters their PIN, and long-polls until the
+  // provider callback finalizes the payment (or the minute elapses).
+  const stkWait = useStkWait();
 
   // Tenants load their room's payment destination so the pay modal shows
   // exactly the paybill/till/number the landlord configured.
@@ -238,10 +245,14 @@ export default function PaymentsPage() {
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error(result.error || 'Payment failed');
       if (result.data.status === 'PENDING') {
+        // STK push accepted — keep the modal open and wait up to 1 minute for
+        // the tenant to enter their PIN (resolved by the provider callback).
         toast.success(result.data.message || 'Payment prompt sent');
-      } else {
-        toast.success(result.data.message || 'Payment successful');
+        setPaying(false);
+        stkWait.start(result.data.paymentId);
+        return;
       }
+      toast.success(result.data.message || 'Payment successful');
       setPayOpen(false);
       await fetchPayments();
     } catch (err) {
@@ -250,6 +261,34 @@ export default function PaymentsPage() {
       setPaying(false);
     }
   };
+
+  // Called when the 1-minute PIN wait ends (completed / failed / timeout).
+  const handleStkWaitDone = useCallback(async () => {
+    setPayOpen(false);
+    stkWait.reset();
+    await fetchPayments();
+  }, [stkWait, fetchPayments]);
+
+  // React to the wait result once it resolves (completed / failed / timeout).
+  useEffect(() => {
+    if (stkWait.phase === 'completed') {
+      toast.success(
+        stkWait.transactionCode
+          ? `Payment received — receipt ${stkWait.transactionCode}`
+          : 'Payment received successfully'
+      );
+      handleStkWaitDone();
+    } else if (stkWait.phase === 'failed') {
+      toast.error('The M-Pesa payment was not completed. Please try again.');
+      handleStkWaitDone();
+    } else if (stkWait.phase === 'timeout') {
+      toast.error(
+        "We didn't receive your PIN within 1 minute — the payment is still pending. Re-enter your PIN on your phone or try again."
+      );
+      handleStkWaitDone();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stkWait.phase]);
 
   // Tenant pays via the hosted PalPluss link (same API — payment matched by webhook).
   const handlePayViaLink = async () => {
@@ -507,11 +546,42 @@ export default function PaymentsPage() {
 
       {/* Tenant Make Payment Modal */}
       <Modal
-        open={payOpen}
-        onClose={() => setPayOpen(false)}
-        title="Make a Payment"
-        subtitle="Pay one of your invoices or make a direct rent payment"
+        open={payOpen || stkWait.phase === 'waiting'}
+        onClose={() => {
+          // While waiting for the PIN, closing dismisses the wait (the payment
+          // itself stays PENDING and can still complete via the callback).
+          if (stkWait.phase === 'waiting') stkWait.reset();
+          setPayOpen(false);
+        }}
+        title={stkWait.phase === 'waiting' ? 'Waiting for your M-Pesa PIN' : 'Make a Payment'}
+        subtitle={
+          stkWait.phase === 'waiting'
+            ? undefined
+            : 'Pay one of your invoices or make a direct rent payment'
+        }
       >
+        {stkWait.phase === 'waiting' ? (
+          <div className="space-y-4 py-2 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50">
+              <SmartphoneIcon className="h-7 w-7 text-emerald-600 animate-pulse" />
+            </div>
+            <p className="text-sm font-medium text-gray-900">
+              Check your phone — enter your M-Pesa PIN to complete the payment
+            </p>
+            <p className="text-xs text-[#646669]">
+              A PIN prompt was sent to <strong>{payForm.phone || 'your number'}</strong>. The request
+              expires after 1 minute — you can retry after that.
+            </p>
+            <div
+              className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-emerald-500 text-xl font-bold text-emerald-600"
+              role="timer"
+              aria-live="polite"
+            >
+              {stkWait.secondsLeft}
+            </div>
+            <p className="text-xs text-[#646669]">Waiting for confirmation…</p>
+          </div>
+        ) : (
         <form onSubmit={handlePay} className="space-y-4">
           {hasInvoices ? (
             <Select
@@ -589,6 +659,7 @@ export default function PaymentsPage() {
             </Button>
           </div>
         </form>
+        )}
       </Modal>
 
       {/* Management Record Payment Modal */}

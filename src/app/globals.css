@@ -32,6 +32,7 @@
     @apply border-border;
   }
   body {
+    /* Page background color only; hero image handled separately */
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
     scroll-behavior: smooth;
@@ -112,6 +113,33 @@
   background-clip: text;
 }
 
+/* Hero background image (shows only in hero sections) */
+.hero-bg {
+  background-image: url('/profile.jpeg');
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  filter: brightness(0.45) saturate(0.9);
+}
+
+/* Dark overlay placed above the hero image but below content to improve contrast */
+.hero-overlay {
+  background: linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45));
+}
+
+/* Hero content helpers */
+.hero-content {
+  color: #f8fafc; /* near-white */
+  text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+}
+.hero-content .btn-gold {
+  color: #0f0f1a; /* keep gold button foreground dark for contrast */
+}
+.hero-content .btn-ghost,
+.hero-content .btn-link {
+  color: #f8fafc !important;
+}
+
 /* Noise texture overlay */
 .noise-overlay::before {
   content: '';
@@ -166,4 +194,63 @@
   border-color: rgba(226, 183, 20, 0.6);
   background: rgba(226, 183, 20, 0.05);
   box-shadow: 0 0 20px rgba(226, 183, 20, 0.08);
+}
+
+/* Theme mode overrides (used by SettingsProvider via data-theme on <html>) */
+:root[data-theme="light"] {
+  --settings-bg: #f8fafc;
+  --settings-text: #0f172a;
+  --settings-muted: #475569;
+}
+
+:root[data-theme="dark"] {
+  --settings-bg: #0f0f1a;
+  --settings-text: #d4d4d4;
+  --settings-muted: #646669;
+}
+
+/* Make tailwind hex-utility text colors readable in light mode by overriding them inside the settings-root */
+:root[data-theme="light"] [data-settings-root] {
+  color: var(--settings-text) !important;
+  background-color: var(--settings-bg) !important;
+}
+
+:root[data-theme="light"] [data-settings-root] .text-[#646669],
+:root[data-theme="light"] [data-settings-root] .text-[#585858],
+:root[data-theme="light"] [data-settings-root] .text-[#8a8a8a] {
+  color: var(--settings-muted) !important;
+}
+
+:root[data-theme="light"] [data-settings-root] .text-[#d4d4d4],
+:root[data-theme="light"] [data-settings-root] .text-white,
+:root[data-theme="light"] [data-settings-root] .text-[#f8fafc] {
+  color: var(--settings-text) !important;
+}
+
+:root[data-theme="light"] [data-settings-root] .hero-content {
+  color: var(--settings-text) !important;
+  text-shadow: none !important;
+}
+
+:root[data-theme="light"] [data-settings-root] .bg-[#0f0f1a],
+:root[data-theme="light"] [data-settings-root] .bg-[#1a1a2e],
+:root[data-theme="light"] [data-settings-root] .glass-dark {
+  background-color: rgba(255,255,255,0.9) !important;
+  color: var(--settings-text) !important;
+  border-color: rgba(15,23,42,0.06) !important;
+}
+
+:root[data-theme="light"] [data-settings-root] .btn-gold {
+  background: linear-gradient(135deg, rgba(226,183,20,0.95), rgba(226,183,20,0.8)) !important;
+  color: #0f0f1a !important;
+}
+
+:root[data-theme="light"] [data-settings-root] .btn-gold-outline {
+  color: #b07b00 !important;
+  border-color: rgba(176,123,0,0.15) !important;
+}
+
+:root[data-theme="light"] [data-settings-root] a.btn-gold,
+:root[data-theme="light"] [data-settings-root] a.btn-gold-outline {
+  box-shadow: none !important;
 }

@@ -56,9 +56,11 @@ export function Header({ onMenuToggle }: HeaderProps) {
             onClick={() => setShowProfile(!showProfile)}
             className="flex items-center gap-2 p-1 rounded-lg hover:bg-[#e2b714]/5 transition-colors"
           >
-            <div className="w-7 h-7 rounded-full bg-[#e2b714]/10 border border-[#e2b714]/20 flex items-center justify-center text-[#e2b714] text-[10px] font-bold">
-              {user ? getInitials(user.firstName, user.lastName) : 'U'}
-            </div>
+            <img
+              src="/profile.jpeg"
+              alt="Profile"
+              className="w-7 h-7 rounded-full object-cover border border-[#e2b714]/20"
+            />
             <div className="hidden lg:block text-left">
               <p className="text-xs font-medium text-[#d4d4d4] leading-tight">
                 {user ? `${user.firstName} ${user.lastName}` : 'User'}

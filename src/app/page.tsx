@@ -18,7 +18,7 @@ import {
   Clock,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import { SettingsProvider } from '@/lib/settings/context';
+// SettingsProvider is provided globally in Providers
 import { SettingsToggleButton, SettingsPanel } from '@/components/settings/settings-panel';
 
 function FloatingParticles() {
@@ -95,19 +95,29 @@ function FeatureCard({
   title,
   description,
   delay,
+  image,
 }: {
   icon: React.ElementType;
   title: string;
   description: string;
   delay: number;
+  image?: string;
 }) {
   return (
     <div
       className="card-monkey rounded-2xl p-6 md:p-8 group"
       style={{ animationDelay: `${delay}s` }}
     >
-      <div className="w-12 h-12 rounded-xl bg-[#e2b714]/10 flex items-center justify-center mb-5 group-hover:bg-[#e2b714]/20 transition-all duration-300 group-hover:scale-110">
-        <Icon className="w-6 h-6 text-[#e2b714]" />
+      <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-5 group-hover:scale-110 transition-all duration-300 overflow-hidden">
+        {image ? (
+          <img
+            src={image}
+            alt={title}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <Icon className="w-6 h-6 text-[#e2b714]" />
+        )}
       </div>
       <h3 className="text-lg font-semibold text-[#d4d4d4] mb-3 group-hover:text-[#e2b714] transition-colors duration-300">
         {title}
@@ -168,36 +178,41 @@ export default function LandingPage() {
       icon: Wallet,
       title: 'M-Pesa Integration',
       description: 'Collect rent seamlessly via M-Pesa STK Push, Paybill, and Till Number with automatic receipt generation and real-time confirmation.',
+      image: '/M-Pesa Logo.jpeg',
     },
     {
       icon: Building2,
       title: 'Property Portfolio',
       description: 'Manage multiple properties and units with ease. Track occupancy rates, lease expirations, and property performance in real-time.',
+      image: '/property portfolio.jpeg',
     },
     {
       icon: Users,
       title: 'Tenant Hub',
       description: 'Centralized tenant profiles with lease agreements, payment history, documents, and communication logs all in one place.',
+      image: '/TENANT hub.jpeg',
     },
     {
       icon: Shield,
       title: 'Maintenance Tracker',
       description: 'Tenants can report issues with photos. Track repair progress, assign vendors, and keep everyone updated automatically.',
+      image: '/maintenace tracker.jpeg',
     },
     {
       icon: BarChart3,
       title: 'Analytics Dashboard',
       description: 'Beautiful, real-time dashboard with income reports, occupancy trends, vacancy tracking, and actionable financial insights.',
+      image: '/analytics dashboard.jpeg',
     },
     {
       icon: Sparkles,
       title: 'Smart Automation',
       description: 'Auto-generate invoices, send rent reminders via SMS/email, and automate late fee calculations based on your rules.',
+      image: '/smart automation .jpeg',
     },
   ];
 
   return (
-    <SettingsProvider>
     <div className="min-h-screen bg-[var(--settings-bg,#0f0f1a)] overflow-hidden noise-overlay" data-settings-root>
       {/* Grid Background */}
       <div
@@ -224,9 +239,11 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 md:h-20">
             <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-[#e2b714]/10 flex items-center justify-center border border-[#e2b714]/20 group-hover:bg-[#e2b714]/20 transition-all duration-300">
-                <Home className="w-5 h-5 text-[#e2b714]" />
-              </div>
+              <img
+                src="/profile.jpeg"
+                alt="Boma Yangu"
+                className="w-9 h-9 md:w-10 md:h-10 rounded-xl object-cover border border-[#e2b714]/20 group-hover:bg-[#e2b714]/20 transition-all duration-300"
+              />
               <span className="font-bold text-lg md:text-xl text-[#d4d4d4]">
                 Boma<span className="text-[#e2b714]">Yangu</span>
               </span>
@@ -235,13 +252,14 @@ export default function LandingPage() {
               <Link href="/login">
                 <Button
                   variant="ghost"
-                  className="text-[#646669] hover:text-[#d4d4d4] hover:bg-white/[0.06] transition-all duration-200"
+                  className="btn-ghost hover:text-[#d4d4d4] hover:bg-white/[0.06] transition-all duration-200"
                 >
                   Sign In
                 </Button>
-              </Link>              <Link href="/register" className="btn-gold rounded-lg px-5 py-2.5 text-sm flex items-center gap-2">
-                  Get Started <ArrowRight className="w-4 h-4" />
-                </Link>
+              </Link>
+              <Link href="/register" className="btn-gold rounded-lg px-5 py-2.5 text-sm flex items-center gap-2">
+                Get Started <ArrowRight className="w-4 h-4" />
+              </Link>
             </div>
           </div>
         </div>
@@ -249,10 +267,13 @@ export default function LandingPage() {
 
       {/* Hero Section */}
       <section className="relative pt-32 md:pt-40 pb-20 md:pb-32 px-4">
-        <div
-          className={`max-w-5xl mx-auto text-center transition-all duration-1000 ${
-            isVisible.hero ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
-          }`}
+            {/* Hero background image (non-covering) */}
+            <div className="hero-bg absolute inset-x-0 top-0 h-[420px] md:h-[520px] pointer-events-none z-0" />
+            <div className="hero-overlay absolute inset-x-0 top-0 h-[420px] md:h-[520px] pointer-events-none z-5" />
+            <div
+              className={`max-w-5xl mx-auto text-center transition-all duration-1000 relative z-10 hero-content ${
+                isVisible.hero ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
+              }`}
         >
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium mb-8 border border-[#e2b714]/20 bg-[#e2b714]/5 text-[#e2b714]">
@@ -270,12 +291,12 @@ export default function LandingPage() {
           </h1>
 
           {/* Typewriter Subtitle */}
-          <p className="text-lg md:text-xl text-[#646669] max-w-2xl mx-auto mb-4 font-mono">
-            <span className="text-[#646669]">$ </span>
+          <p className="text-lg md:text-xl max-w-2xl mx-auto mb-4 font-mono">
+            <span className="text-white">$ </span>
             <TypewriterText />
           </p>
 
-          <p className="text-base md:text-lg text-[#646669] max-w-2xl mx-auto mb-10">
+          <p className="text-base md:text-lg text-white/90 max-w-2xl mx-auto mb-10">
             The all-in-one rental management platform designed for the Kenyan market.
             Collect rent via M-Pesa, track maintenance, and grow your portfolio.
           </p>
@@ -436,6 +457,5 @@ export default function LandingPage() {
       <SettingsToggleButton />
       <SettingsPanel />
     </div>
-    </SettingsProvider>
   );
 }

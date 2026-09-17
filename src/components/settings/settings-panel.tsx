@@ -1,7 +1,7 @@
 'use client';
 
-import { useSettings, type FontFamily, type ContrastLevel } from '@/lib/settings/context';
-import { Settings, X, Type, Sun, RotateCcw } from 'lucide-react';
+import { useSettings, type FontFamily, type ContrastLevel, type ThemeMode } from '@/lib/settings/context';
+import { Settings, X, Type, Sun, RotateCcw, Moon } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 const FONT_OPTIONS: { value: FontFamily; label: string; preview: string }[] = [
@@ -43,10 +43,10 @@ export function SettingsToggleButton() {
 
 export function SettingsPanel() {
   const settingsCtx = useSettings();
-  const [activeTab, setActiveTab] = useState<'font' | 'contrast'>('font');
+  const [activeTab, setActiveTab] = useState<'font' | 'contrast' | 'theme'>('font');
 
   if (!settingsCtx || !settingsCtx.isOpen) return null;
-  const { settings, setFontFamily, setFontSize, setContrast, resetSettings, setIsOpen } = settingsCtx;
+  const { settings, setFontFamily, setFontSize, setContrast, setTheme, resetSettings, setIsOpen } = settingsCtx;
 
   return (
     <>
@@ -96,6 +96,17 @@ export function SettingsPanel() {
             >
               <Sun className="w-3.5 h-3.5" />
               Contrast
+            </button>
+            <button
+              onClick={() => setActiveTab('theme')}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-medium transition-all ${
+                activeTab === 'theme'
+                  ? 'text-[#e2b714] border-b-2 border-[#e2b714]'
+                  : 'text-[#585858] hover:text-[#646669]'
+              }`}
+            >
+              <Moon className="w-3.5 h-3.5" />
+              Theme
             </button>
           </div>
 
@@ -197,6 +208,33 @@ export function SettingsPanel() {
                       <span className="text-[#646669]">Muted text</span>
                       <span className="text-[#585858]">Subtle text</span>
                     </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {activeTab === 'theme' && (
+              <>
+                <div>
+                  <p className="text-[10px] font-semibold text-[#585858] uppercase tracking-wider mb-3">Theme</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { value: 'light' as ThemeMode, label: 'Light' },
+                      { value: 'dark' as ThemeMode, label: 'Dark' },
+                      { value: 'system' as ThemeMode, label: 'System' },
+                    ]).map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setTheme(opt.value)}
+                        className={`py-3 px-3 rounded-xl text-xs font-medium transition-all duration-200 border ${
+                          settings.theme === opt.value
+                            ? 'bg-[#e2b714]/10 border-[#e2b714]/30 text-[#e2b714]'
+                            : 'bg-[#0f0f1a] border-[#2a2a3e] text-[#646669] hover:border-[#e2b714]/20 hover:text-[#d4d4d4]'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </>

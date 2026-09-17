@@ -69,8 +69,11 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
   // abort a real payment. 15s covers ~9 sequential round-trips with headroom.
   const updated = await prisma.$transaction(
     async (tx) => {
-    const paid = await tx.payment.update({
-      where: { id: payment.id },
+    // Atomically claim the PENDING payment so concurrent finalizations (the
+    // PalPluss webhook racing the status-endpoint provider poll) can never
+    // double-apply to the payment and its invoice.
+    const claimed = await tx.payment.updateMany({
+      where: { id: payment.id, status: 'PENDING' },
       data: {
         status: 'COMPLETED',
         amount,
@@ -85,6 +88,14 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
         balanceAfter: invoice ? newBalance : null,
       },
     });
+    if (claimed.count === 0) {
+      // Already finalized (or no longer PENDING) elsewhere — leave the record
+      // and the invoice untouched.
+      return payment;
+    }
+
+    const paid = await tx.payment.findUnique({ where: { id: payment.id } });
+    if (!paid) throw new Error('Payment disappeared during finalization');
 
     if (invoice) {
       await tx.invoice.update({

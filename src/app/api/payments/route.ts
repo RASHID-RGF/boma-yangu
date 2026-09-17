@@ -7,13 +7,10 @@ import { isManagementRole } from '@/lib/auth/rbac';
 import {
   stkPush as palplussStkPush,
   PalPlussApiError,
+  RateLimitError,
   isValidSafaricomPhoneNumber,
 } from '@/lib/payments/palpluss';
-import {
-  stkPush as darajaStkPush,
-  isDarajaConfigured,
-} from '@/lib/payments/daraja';
-import { finalizePayment, isPalplussConfigured, simulateTransactionCode } from '@/lib/payments/finalize';
+import { finalizePayment, isPalplussConfigured } from '@/lib/payments/finalize';
 import { resolveChannelId } from '@/lib/payments/palpluss';
 import { z } from 'zod';
 
@@ -315,36 +312,13 @@ export async function POST(request: Request) {
         ? invoice.invoiceNumber
         : unitId
           ? `RENT-${unitId.slice(-5).toUpperCase()}`
-          : 'RENT';      // ---- STK Push: try Daraja (Safaricom) first, then PalPluss ----
+          : 'RENT';
       const accountRef = accountReference;
 
-      // 1) Try Daraja (Safaricom official STK push) first
-      if (isDarajaConfigured()) {
-        try {
-          console.log('[Payment] Daraja STK push → phone:', phone, 'amount:', amount, 'ref:', accountRef);
-          const stk = await darajaStkPush(phone, amount, accountRef, 'Rent payment');
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: { checkoutRequestId: stk.transactionId },
-          });
-          return NextResponse.json(
-            {
-              success: true,
-              data: {
-                paymentId: payment.id,
-                status: 'PENDING',
-                message: stk.customerMessage || 'Payment prompt sent. Enter your PIN to complete the payment.',
-              },
-            },
-            { status: 201 }
-          );
-        } catch (darajaError) {
-          console.error('[Payment] Daraja STK push failed, trying PalPluss:', darajaError);
-          // Fall through to PalPluss below
-        }
-      }
-
-      // 2) Try PalPluss (multi-landlord collection channels)
+      // ---- STK Push: PalPluss (the system's only STK provider) ----
+      // Routes the rent to the property's own PalPluss channel (the landlord's
+      // till/paybill) — multi-landlord collection. Falls back to the platform
+      // default channel when the property has none.
       if (isPalplussConfigured()) {
         try {
           // Route the rent to the property's own PalPluss channel (the
@@ -359,17 +333,44 @@ export async function POST(request: Request) {
           const preferredChannelId = resolveChannelId(property?.property?.palplussChannelId);
           const channelIdsToTry = preferredChannelId ? [preferredChannelId, undefined] : [undefined];
 
+          // Push attempt: try the property's channel first (falling back to
+          // the platform default on a channel rejection). Transient failures
+          // (network errors, 5xx, rate limits) are retried once so a momentary
+          // provider hiccup can never kill a payment.
+          const attemptPush = async () => {
+            let lastError: unknown;
+            for (const channelId of channelIdsToTry) {
+              try {
+                console.log('[Payment] PalPluss STK push → phone:', phone, 'amount:', amount, 'ref:', accountRef, 'channel:', channelId ?? '(default)');
+                return await palplussStkPush(phone, amount, accountRef, 'Rent payment', channelId);
+              } catch (error) {
+                lastError = error;
+                if (error instanceof PalPlussApiError && [400, 422].includes(error.httpStatus) && channelId && channelIdsToTry.length > 1) {
+                  console.warn('[Payment] PalPluss custom channel rejected, retrying with account default channel:', error.message);
+                  continue;
+                }
+                throw error;
+              }
+            }
+            throw lastError ?? new Error('PalPluss STK push failed');
+          };
+
+          const isTransientError = (error: unknown) =>
+            error instanceof RateLimitError ||
+            (error instanceof PalPlussApiError && error.httpStatus >= 500) ||
+            !(error instanceof PalPlussApiError); // network / timeout errors
+
           let stk: Awaited<ReturnType<typeof palplussStkPush>> | undefined;
           let lastError: unknown;
-          for (const channelId of channelIdsToTry) {
+          for (let attempt = 1; attempt <= 2; attempt++) {
             try {
-              console.log('[Payment] PalPluss STK push → phone:', phone, 'amount:', amount, 'ref:', accountRef, 'channel:', channelId ?? '(default)');
-              stk = await palplussStkPush(phone, amount, accountRef, 'Rent payment', channelId);
+              stk = await attemptPush();
               break;
             } catch (error) {
               lastError = error;
-              if (error instanceof PalPlussApiError && [400, 422].includes(error.httpStatus) && channelId && channelIdsToTry.length > 1) {
-                console.warn('[Payment] PalPluss custom channel rejected, retrying with account default channel:', error.message);
+              if (attempt < 2 && isTransientError(error)) {
+                console.warn(`[Payment] Transient PalPluss failure (attempt ${attempt}/2), retrying:`, error instanceof Error ? error.message : error);
+                await new Promise((resolve) => setTimeout(resolve, 1_000));
                 continue;
               }
               throw error;
@@ -411,13 +412,13 @@ export async function POST(request: Request) {
         }
       }
 
-      // 3) No live STK provider configured. Reject the payment instead of
-      //    silently simulating a completed transaction so tenants always
-      //    receive a real M-Pesa STK prompt in production-like setups.
+      // No live STK provider configured. Reject the payment instead of
+      // silently simulating a completed transaction so tenants always
+      // receive a real M-Pesa STK prompt in production-like setups.
       console.error('[Payment] No STK provider configured — aborting STK push');
       await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
       return NextResponse.json(
-        { success: false, error: 'No STK provider configured. Contact the administrator to enable Daraja or PalPluss.' },
+        { success: false, error: 'No STK provider configured. Contact the administrator to enable PalPluss.' },
         { status: 503 }
       );
     }
@@ -449,7 +450,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    // Surface PalPluss / Daraja errors to the browser so the user sees
+    // Surface PalPluss errors to the browser so the user sees
     // the real reason instead of a generic "Failed to record payment".
     const msg = error?.message || 'Failed to record payment';
     return NextResponse.json({ success: false, error: msg }, { status: 400 });
