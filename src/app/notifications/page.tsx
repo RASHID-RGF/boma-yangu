@@ -6,7 +6,7 @@ import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatDateTime } from '@/lib/utils/format';
-import { Bell, RefreshCw, CheckCheck, Wrench, FileText, AlertCircle, Info, Mail } from 'lucide-react';
+import { Bell, RefreshCw, CheckCheck, Wrench, FileText, AlertCircle, Info, Mail, MessageSquare } from 'lucide-react';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface NotificationRow {
@@ -107,8 +107,8 @@ export default function NotificationsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             <button
               onClick={fetchNotifications}

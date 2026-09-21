@@ -26,3 +26,23 @@ test('getSmtpConfig detects gmail SMTP settings', () => {
   assert.equal(config.host, 'smtp.gmail.com');
   assert.equal(config.user, 'user@gmail.com');
 });
+
+test('getSmtpConfig supports common alternate mail environment names', () => {
+  delete process.env.SMTP_HOST;
+  delete process.env.SMTP_PORT;
+  delete process.env.SMTP_USER;
+  delete process.env.SMTP_PASS;
+  delete process.env.SMTP_FROM;
+  process.env.EMAIL_HOST = 'smtp.mailgun.org';
+  process.env.EMAIL_PORT = '587';
+  process.env.EMAIL_USER = 'postmaster@example.com';
+  process.env.EMAIL_PASS = 'mailgun-password';
+  process.env.EMAIL_FROM = 'alerts@example.com';
+
+  const config = getSmtpConfig();
+
+  assert.equal(config.enabled, true);
+  assert.equal(config.host, 'smtp.mailgun.org');
+  assert.equal(config.user, 'postmaster@example.com');
+  assert.equal(config.from, 'alerts@example.com');
+});

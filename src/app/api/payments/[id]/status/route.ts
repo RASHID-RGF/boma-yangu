@@ -31,6 +31,7 @@ export const dynamic = 'force-dynamic';
 const MAX_WAIT_MS = 120_000;
 const POLL_INTERVAL_MS = 2_000;
 const PROVIDER_QUERY_INTERVAL_MS = 9_000;
+const LINK_SYNC_INTERVAL_MS = 12_000;
 const FAILED_STATUSES = new Set(['FAILED', 'CANCELLED', 'EXPIRED', 'REVERSED']);
 
 const STATUS_SELECT = {
@@ -39,6 +40,7 @@ const STATUS_SELECT = {
   transactionCode: true,
   receiptNumber: true,
   checkoutRequestId: true,
+  method: true,
   tenantId: true,
   tenant: { select: { userId: true } },
   unit: { select: { property: { select: { ownerId: true } } } },
@@ -99,6 +101,24 @@ async function syncFromProvider(paymentId: string, checkoutRequestId: string) {
   }
 }
 
+/**
+ * Webhook fallback for hosted pay-link payments: link checkouts are created on
+ * PalPluss's side, so there is no transaction id to poll — ask the shared
+ * reconciliation logic instead, which searches PalPluss's recent transactions
+ * for a successful phone+amount match and finalizes the payment.
+ */
+async function syncLinkFromProvider(paymentId: string) {
+  try {
+    const { syncPendingLinkPayment } = await import('@/lib/payments/link-sync');
+    return await syncPendingLinkPayment(paymentId);
+  } catch (error) {
+    // In-progress or transient errors — keep waiting; the webhook (or a later
+    // poll) still finalizes the payment.
+    console.warn('[Payment Status] Link sync failed (will retry):', error instanceof Error ? error.message : error);
+    return false;
+  }
+}
+
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();
@@ -144,6 +164,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const deadline = Date.now() + waitMs;
     let current = payment;
     let nextProviderCheckAt = Date.now();
+    let nextLinkSyncAt = Date.now();
     while (current.status === 'PENDING' && Date.now() < deadline && !request.signal.aborted) {
       const sleepMs = Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now()));
       if (sleepMs > 0) {
@@ -155,7 +176,22 @@ export async function GET(request: Request, { params }: { params: { id: string }
           select: STATUS_SELECT,
         })) ?? current;
 
-      if (current.status === 'PENDING' && current.checkoutRequestId && Date.now() >= nextProviderCheckAt) {
+      if (
+        current.status === 'PENDING' &&
+        current.method === 'MPESA_PAY_LINK' &&
+        !current.checkoutRequestId &&
+        Date.now() >= nextLinkSyncAt
+      ) {
+        // Hosted pay-link payment: reconcile against PalPluss's transaction
+        // list (no checkoutRequestId exists to poll for these).
+        nextLinkSyncAt = Date.now() + LINK_SYNC_INTERVAL_MS;
+        await syncLinkFromProvider(current.id);
+        current =
+          (await prisma.payment.findUnique({
+            where: { id: payment.id },
+            select: STATUS_SELECT,
+          })) ?? current;
+      } else if (current.status === 'PENDING' && current.checkoutRequestId && Date.now() >= nextProviderCheckAt) {
         nextProviderCheckAt = Date.now() + PROVIDER_QUERY_INTERVAL_MS;
         await syncFromProvider(current.id, current.checkoutRequestId);
         current =

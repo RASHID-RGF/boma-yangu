@@ -58,12 +58,26 @@ export function buildEmailHtml(
   `;
 }
 
+function readEnvValue(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
 export function getSmtpConfig() {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || '465');
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const from = process.env.SMTP_FROM || process.env.EMAIL_FROM || user || 'noreply@bomayangu.local';
+  const host = readEnvValue('SMTP_HOST', 'MAIL_HOST', 'EMAIL_HOST', 'MAILER_HOST');
+  const port = Number(readEnvValue('SMTP_PORT', 'MAIL_PORT', 'EMAIL_PORT', 'MAILER_PORT') || '465');
+  const user = readEnvValue('SMTP_USER', 'SMTP_USERNAME', 'MAIL_USER', 'MAIL_USERNAME', 'EMAIL_USER', 'MAILER_USER');
+  const pass = readEnvValue('SMTP_PASS', 'SMTP_PASSWORD', 'MAIL_PASS', 'MAIL_PASSWORD', 'EMAIL_PASS', 'MAILER_PASSWORD');
+  const from =
+    readEnvValue('SMTP_FROM', 'MAIL_FROM', 'EMAIL_FROM', 'MAILER_FROM') ||
+    user ||
+    'noreply@bomayangu.local';
 
   return {
     host,

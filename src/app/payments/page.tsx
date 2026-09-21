@@ -14,7 +14,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   Wallet, Search, CheckCircle2, Clock, RefreshCw, Inbox, Plus, Receipt,
-  Send, Phone, CreditCard, Banknote, Smartphone, Mail,
+  Send, Phone, CreditCard, Banknote, Smartphone, Mail, ExternalLink, MessageSquare,
 } from 'lucide-react';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 import {
@@ -23,6 +23,8 @@ import {
 } from '@/lib/utils/payment-details';
 import { useStkWait } from '@/hooks/useStkWait';
 import { Smartphone as SmartphoneIcon } from 'lucide-react';
+import { buildPayLinkUrl, getPayLinkUrl } from '@/lib/payments/pay-link';
+import { isValidSafaricomPhoneNumber } from '@/lib/payments/phone';
 
 interface PaymentRow {
   id: string;
@@ -64,6 +66,7 @@ interface PaymentDestination {
 
 const METHOD_LABELS: Record<string, string> = {
   MPESA_STK_PUSH: 'M-Pesa STK Push',
+  MPESA_PAY_LINK: 'M-Pesa Pay Link',
   MPESA_PAYBILL: 'M-Pesa Paybill',
   MPESA_TILL_NUMBER: 'M-Pesa Till',
   BANK_TRANSFER: 'Bank Transfer',
@@ -75,12 +78,12 @@ const METHOD_OPTIONS = Object.entries(METHOD_LABELS).map(([value, label]) => ({ 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Hosted PalPluss checkout (NEXT_PUBLIC so it's available in the browser).
-const PAY_LINK_URL = process.env.NEXT_PUBLIC_PALPLUSS_PAY_LINK_URL;
+const PAY_LINK_URL = getPayLinkUrl();
 
 /** Opens the hosted PalPluss checkout with the payment amount prefilled. */
-function openPayLink(amount: number) {
-  const url = `${PAY_LINK_URL}?amount=${Math.round(amount)}`;
-  window.open(url, '_blank', 'noopener,noreferrer');
+function openPayLink(amount: number, reference?: string) {
+  const url = buildPayLinkUrl(amount, reference);
+  if (url) window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 export default function PaymentsPage() {
@@ -104,6 +107,13 @@ export default function PaymentsPage() {
   // countdown while the tenant enters their PIN, and long-polls until the
   // provider callback finalizes the payment (or the minute elapses).
   const stkWait = useStkWait();
+
+  // "Waiting on the PalPluss checkout tab" state for pay-link payments: the
+  // modal switches to a pending view and polls /api/payments/sync-link (plus
+  // the payment status endpoint) until the webhook or the sync reconciliation
+  // confirms the payment, or the tenant dismisses the wait.
+  const [linkWait, setLinkWait] = useState<{ paymentId: string; reference: string } | null>(null);
+  const [linkDone, setLinkDone] = useState<{ ok: boolean; code?: string | null } | null>(null);
 
   // Tenants load their room's payment destination so the pay modal shows
   // exactly the paybill/till/number the landlord configured.
@@ -290,7 +300,10 @@ export default function PaymentsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stkWait.phase]);
 
-  // Tenant pays via the hosted PalPluss link (same API — payment matched by webhook).
+  // Tenant pays via the hosted PalPluss link (same API — payment matched by
+  // webhook or by the sync-link reconciliation). Creates the PENDING record,
+  // opens the checkout in a new tab, then keeps the modal open in a waiting
+  // state until the payment is confirmed.
   const handlePayViaLink = async () => {
     if (!PAY_LINK_URL) return;
     const amount = Number(payForm.amount);
@@ -299,7 +312,11 @@ export default function PaymentsPage() {
       return;
     }
     if (!payForm.phone.trim()) {
-      toast.error('Enter your M-Pesa phone number to receive the payment prompt');
+      toast.error('Enter your M-Pesa phone number to identify your payment');
+      return;
+    }
+    if (!isValidSafaricomPhoneNumber(payForm.phone.trim())) {
+      toast.error('Enter a valid Safaricom number (07… or 2547…) — your payment is matched by this number');
       return;
     }
     setPaying(true);
@@ -317,7 +334,10 @@ export default function PaymentsPage() {
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error(result.error || 'Payment failed');
       toast.success(result.data.message || 'Opening secure payment link...');
-      openPayLink(amount);
+      openPayLink(amount, selectedInvoice?.invoiceNumber || undefined);
+      // Keep the modal open in the waiting state instead of closing it, so
+      // the tenant sees the payment confirmed (or can retry) in place.
+      setLinkWait({ paymentId: result.data.paymentId, reference: selectedInvoice?.invoiceNumber || '' });
       setPayOpen(false);
       await fetchPayments();
     } catch (err) {
@@ -326,6 +346,57 @@ export default function PaymentsPage() {
       setPaying(false);
     }
   };
+
+  // Polls while the tenant is on the checkout tab: the sync endpoint asks
+  // PalPluss for a matching transaction (webhook fallback) and the status
+  // endpoint resolves the moment anything finalizes the record.
+  useEffect(() => {
+    if (!linkWait || linkDone) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const tick = async () => {
+      try {
+        const [syncRes, statusRes] = await Promise.allSettled([
+          fetch('/api/payments/sync-link', { signal: controller.signal, cache: 'no-store' }),
+          fetch(`/api/payments/${linkWait.paymentId}/status`, { signal: controller.signal, cache: 'no-store' }),
+        ]);
+        if (cancelled) return;
+        let finished: { ok: boolean; code?: string | null } | null = null;
+        if (syncRes.status === 'fulfilled' && syncRes.value.ok) {
+          const result = await syncRes.value.json().catch(() => null);
+          if (result?.synced) finished = { ok: true, code: result.data?.transactionCode };
+        }
+        if (!finished && statusRes.status === 'fulfilled' && statusRes.value.ok) {
+          const result = await statusRes.value.json().catch(() => null);
+          const status = result?.data?.status;
+          if (status === 'COMPLETED' || status === 'PARTIAL') {
+            finished = { ok: true, code: result.data?.transactionCode || result.data?.receiptNumber };
+          } else if (status && status !== 'PENDING') {
+            finished = { ok: false };
+          }
+        }
+        if (finished) {
+          setLinkDone(finished);
+          await fetchPayments();
+        }
+      } catch {
+        // transient network error — retry on the next tick
+      }
+    };
+    tick();
+    const interval = setInterval(tick, 4_000);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [linkWait, linkDone, fetchPayments]);
+
+  // Close the link-wait overlay once the payment resolves.
+  const dismissLinkWait = useCallback(() => {
+    setLinkWait(null);
+    setLinkDone(null);
+  }, []);
 
   // Open the management "Record Payment" modal: load tenants to pick from.
   const openRecordModal = useCallback(async () => {
@@ -425,8 +496,8 @@ export default function PaymentsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             <button
               onClick={fetchPayments}
@@ -621,44 +692,110 @@ export default function PaymentsPage() {
             icon={<Phone className="w-4 h-4" />}
             required
           />
-          {hasPaymentDetails(destination) && (
+          <p className="text-xs text-[#646669]">
+            Any Safaricom M-Pesa number works — this is the number that receives the PIN prompt
+            (or that you pay with on the PalPluss link), not a restriction on who can pay.
+          </p>
+          {destination && hasPaymentDetails(destination) && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
               <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
                 <Smartphone className="w-3.5 h-3.5" />
                 Your payment goes to
               </p>
               <ul className="mt-1 space-y-0.5">
-                {formatPaymentInstructions(destination).map((line) => (
+                {formatPaymentInstructions({
+                  mpesaPaybill: destination.mpesaPaybill,
+                  mpesaAccountName: destination.mpesaAccountName,
+                  mpesaTillNumber: destination.mpesaTillNumber,
+                  // The landlord's direct phone is intentionally NOT shown:
+                  // rent is collected via the PalPluss link / STK push, and any
+                  // M-Pesa number can pay — it doesn't have to be one specific
+                  // phone, so listing one here would only confuse tenants.
+                  mpesaPhone: null,
+                }).map((line) => (
                   <li key={line} className="text-xs text-emerald-800">{line}</li>
                 ))}
               </ul>
             </div>
           )}
           <p className="text-xs text-[#646669]">
-            The M-Pesa STK push prompt will be sent to <strong>exactly this number</strong> — enter your PIN on your phone to complete the payment.{PAY_LINK_URL ? '' : ' In demo mode (no PalPluss API key) the payment is recorded instantly with a simulated transaction code.'}
+            The M-Pesa STK push prompt will be sent to <strong>exactly this number</strong> — enter your PIN on your phone to complete the payment.
+            {PAY_LINK_URL
+              ? ' Prefer to pay manually? "Pay via Link" opens the landlord\'s secure PalPluss checkout with the amount prefilled — any M-Pesa number can pay there; just use the same number you entered above so your payment is matched automatically.'
+              : ' In demo mode (no PalPluss API key) the payment is recorded instantly with a simulated transaction code.'}
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setPayOpen(false)}>
               Cancel
-            </Button>
-            {PAY_LINK_URL && (
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-1.5"
-                onClick={handlePayViaLink}
-                loading={paying}
-              >
-                <CreditCard className="w-4 h-4" />
-                Pay via Link
-              </Button>
-            )}
+            </Button>                {PAY_LINK_URL && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={handlePayViaLink}
+                    loading={paying}
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Pay via Link
+                  </Button>
+                )}
             <Button type="submit" loading={paying}>
               <Send className="w-4 h-4 mr-2" />
               Pay Now
             </Button>
           </div>
         </form>
+        )}
+      </Modal>
+
+      {/* Waiting-for-checkout overlay while the tenant pays on the PalPluss tab */}
+      <Modal
+        open={!!linkWait}
+        onClose={dismissLinkWait}
+        title="Complete your payment"
+        subtitle="A secure PalPluss checkout was opened in a new tab"
+      >
+        {linkDone ? (
+          <div className="space-y-4 py-2 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50">
+              <CheckCircle2 className={`h-7 w-7 ${linkDone.ok ? 'text-emerald-600' : 'text-red-500'}`} />
+            </div>
+            <p className="text-sm font-medium text-gray-900">
+              {linkDone.ok ? 'Payment received successfully' : 'The payment was not completed'}
+            </p>
+            {linkDone.ok && linkDone.code && (
+              <p className="text-xs text-[#646669]">Receipt: {linkDone.code}</p>
+            )}
+            {!linkDone.ok && (
+              <p className="text-xs text-[#646669]">
+                You can close the checkout tab and try again.
+              </p>
+            )}
+            <Button onClick={dismissLinkWait} className="w-full">
+              Done
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-blue-50">
+              <ExternalLink className="h-7 w-7 text-blue-600 animate-pulse" />
+            </div>
+            <p className="text-sm font-medium text-gray-900">
+              Finish the payment on the checkout tab
+            </p>
+            <p className="text-xs text-[#646669]">
+              Enter your M-Pesa PIN there using the number <strong>{payForm.phone || 'you registered'}</strong> —
+              this page updates automatically once your payment lands. Amount and reference
+              {linkWait?.reference ? ` (${linkWait.reference})` : ''} were prefilled.
+            </p>
+            <div className="flex items-center justify-center gap-1.5 text-xs text-[#646669]">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              Waiting for confirmation…
+            </div>
+            <Button variant="outline" onClick={dismissLinkWait} className="w-full">
+              Close and check payments later
+            </Button>
+          </div>
         )}
       </Modal>
 

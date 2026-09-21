@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { finalizePayment } from '@/lib/payments/finalize';
 import { parseWebhookPayload } from '@palpluss/sdk';
+import { normalizePhoneForMatch } from '@/lib/payments/phone';
 
 /**
  * PalPluss webhook — called after an STK push completes. This is a public
@@ -43,28 +44,28 @@ export async function POST(req: NextRequest) {
 
   // Hosted-link fallback: no checkoutRequestId/external_reference is set for a
   // pay-link checkout, so match a recent PENDING payment by phone + amount.
-  // Requires a UNIQUE match — if several records could fit, treat it as
-  // ambiguous rather than finalizing an arbitrary one.
+  // Only MPESA_PAY_LINK records qualify (checkoutRequestId is null there by
+  // design) so an in-flight STK payment can never be matched. Prefer the
+  // tenant's newest open link payment; treat genuinely ambiguous matches as an
+  // error rather than finalizing an arbitrary record.
   if (!payment && transaction.phone_number && transaction.amount > 0) {
-    const norm = (p: string) => {
-      const digits = p.trim().replace(/\D/g, '');
-      if (!digits) return '';
-      if (digits.startsWith('254')) return digits;
-      if (digits.startsWith('0')) return `254${digits.slice(1)}`;
-      return `254${digits}`;
-    };
-    const phone = norm(transaction.phone_number);
+    const phone = normalizePhoneForMatch(transaction.phone_number);
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // last 24h
     // checkoutRequestId is null only for link-created records — STK payments
     // always have it set right after the push — so this can never finalize an
     // in-flight STK payment.
     const candidates = await prisma.payment.findMany({
-      where: { status: 'PENDING', checkoutRequestId: null, createdAt: { gte: since } },
+      where: {
+        status: 'PENDING',
+        method: 'MPESA_PAY_LINK',
+        checkoutRequestId: null,
+        createdAt: { gte: since },
+      },
       orderBy: { createdAt: 'desc' },
       take: 20,
     });
     const matches = candidates.filter(
-      (p) => p.phoneNumber && norm(p.phoneNumber) === phone && Math.round(p.amount) === Math.round(Number(transaction.amount))
+      (p) => p.phoneNumber && normalizePhoneForMatch(p.phoneNumber) === phone && Math.round(p.amount) === Math.round(Number(transaction.amount))
     );
     if (matches.length > 1) {
       console.error(

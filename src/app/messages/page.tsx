@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,14 +12,26 @@ import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import { formatDateTime, getInitials } from '@/lib/utils/format';
 import { useAuth } from '@/hooks/useAuth';
-import { MessageSquare, Plus, RefreshCw, Send, Mail } from 'lucide-react';
-import { SendMailModal } from '@/components/ui/send-mail-modal';
+import { UserRole } from '@/types';
+import { MessageSquare, Plus, RefreshCw, Send, Mail, DoorOpen, Home } from 'lucide-react';
+import { SendMessageModal } from '@/components/ui/send-mail-modal';
 
 interface Contact {
   id: string;
   firstName: string;
   lastName: string;
   role: string;
+}
+
+interface MessageUnit {
+  id: string;
+  unitNumber: string;
+}
+
+interface RoomContext {
+  id: string;
+  unitNumber: string;
+  property?: { id: string; name: string } | null;
 }
 
 interface MessageRow {
@@ -29,6 +42,8 @@ interface MessageRow {
   createdAt: string;
   sender?: { id: string; firstName: string; lastName: string; role: string } | null;
   receiver?: { id: string; firstName: string; lastName: string; role: string } | null;
+  unit?: MessageUnit | null;
+  tenant?: { id: string; firstName: string; lastName: string } | null;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -41,14 +56,18 @@ const ROLE_COLORS: Record<string, string> = {
 
 export default function MessagesPage() {
   const { user } = useAuth();
+  const isTenant = user?.role === UserRole.TENANT;
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactsNote, setContactsNote] = useState<string | null>(null);
+  const [room, setRoom] = useState<RoomContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mailOpen, setMailOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({ receiverId: '', receiverEmail: '', subject: '', content: '' });
+  const [contactFilter, setContactFilter] = useState<'ALL' | 'LANDLORD' | 'TENANT'>('ALL');
 
   const fetchMessages = useCallback(async () => {
     setLoading(true);
@@ -59,6 +78,8 @@ export default function MessagesPage() {
       if (!res.ok || !result.success) throw new Error(result.error || 'Failed to load messages');
       setMessages(result.data);
       setContacts(result.contacts || []);
+      setContactsNote(result.contactsNote || null);
+      setRoom(result.room || null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load messages');
     } finally {
@@ -67,6 +88,21 @@ export default function MessagesPage() {
   }, []);
 
   useEffect(() => { fetchMessages(); }, [fetchMessages]);
+
+  // Auto-select the recipient when there's exactly one contact (tenant → landlord).
+  useEffect(() => {
+    if (filteredContacts.length === 1 && !form.receiverId && !form.receiverEmail) {
+      setForm((f) => ({ ...f, receiverId: filteredContacts[0].id }));
+    }
+  }, [filteredContacts, form.receiverId, form.receiverEmail]);
+
+  // Reset form when the New Message modal opens.
+  useEffect(() => {
+    if (modalOpen) {
+      const autoId = filteredContacts.length === 1 ? filteredContacts[0].id : '';
+      setForm({ receiverId: autoId, receiverEmail: '', subject: '', content: '' });
+    }
+  }, [modalOpen, filteredContacts]);
 
   const handleChange = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -92,7 +128,11 @@ export default function MessagesPage() {
     }
   };
 
-  const contactOptions = contacts.map((c) => ({
+  const filteredContacts = contacts.filter((c) =>
+    contactFilter === 'ALL' ? true : contactFilter === 'LANDLORD' ? c.role === 'LANDLORD' || c.role === 'SUPER_ADMIN' : c.role === 'TENANT'
+  );
+
+  const contactOptions = filteredContacts.map((c) => ({
     value: c.id,
     label: `${c.firstName} ${c.lastName} (${c.role.replace(/_/g, ' ')})`,
   }));
@@ -116,8 +156,7 @@ export default function MessagesPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-6">          <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
             <p className="text-gray-500 mt-1">
@@ -126,8 +165,8 @@ export default function MessagesPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             <button
               onClick={fetchMessages}
@@ -142,6 +181,49 @@ export default function MessagesPage() {
             </Button>
           </div>
         </div>
+
+        {/* Tenant: Your Room context — same pattern as My Room */}
+        {isTenant && room && (
+          <Card className="border-blue-200 bg-blue-50/50">
+            <CardContent className="p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-100">
+                  <DoorOpen className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    Your room: {room.unitNumber}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {room.property?.name || 'Your property'} — messages about your room
+                  </p>
+                </div>
+              </div>
+              <Link href="/my-room">
+                <Button variant="outline" size="sm" className="gap-1.5 whitespace-nowrap">
+                  View My Room
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tenant: No room allocated */}
+        {isTenant && !room && (
+          <Card className="border-amber-200 bg-amber-50/50">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-100">
+                <Home className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">No room allocated yet</p>
+                <p className="text-xs text-gray-500">
+                  Your landlord has not allocated you a room. Once they do, your messages will be linked to it.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {loading ? (
           <div className="space-y-3 animate-pulse">
@@ -204,6 +286,26 @@ export default function MessagesPage() {
                         </div>
                         <p className="text-sm font-medium text-gray-800 mt-1.5">{message.subject}</p>
                         <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{message.content}</p>
+                        {(message.unit || message.tenant) && (
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            {message.unit && (
+                              <>
+                                <DoorOpen className="w-3 h-3 text-blue-500" />
+                                <span className="text-[11px] text-blue-600 font-medium">
+                                  Room {message.unit.unitNumber}
+                                </span>
+                              </>
+                            )}
+                            {message.tenant && !message.unit && (
+                              <>
+                                <DoorOpen className="w-3 h-3 text-blue-500" />
+                                <span className="text-[11px] text-blue-600 font-medium">
+                                  {message.tenant.firstName} {message.tenant.lastName}'s messages
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -220,24 +322,80 @@ export default function MessagesPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title="New Message"
-        subtitle="Message your landlord or estate team"
+        subtitle="Send a message to the landlord or tenant"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <Select
             name="receiverId"
             label="To"
-            placeholder="Select a recipient"
+            placeholder={
+              contacts.length === 0 ? (contactsNote || 'No contacts available') : 'Select a recipient'
+            }
             options={contactOptions}
             value={form.receiverId}
             onChange={(e) => handleChange('receiverId', e.target.value)}
           />
-          <Input
-            name="receiverEmail"
-            label="or recipient email"
-            placeholder="tenant@example.com or landlord@example.com"
-            value={form.receiverEmail}
-            onChange={(e) => handleChange('receiverEmail', e.target.value)}
-          />
+          {contacts.length === 0 && contactsNote && (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              {contactsNote}
+            </p>
+          )}
+          {/* Filter by recipient role */}
+          {contacts.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-gray-500">Filter:</div>
+              <div className="inline-flex rounded-lg overflow-hidden border border-border">
+                <button
+                  type="button"
+                  onClick={() => setContactFilter('ALL')}
+                  className={`px-3 py-1 text-xs ${contactFilter === 'ALL' ? 'bg-[#e2b714]/10 text-[#e2b714]' : 'bg-white text-gray-600'}`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContactFilter('LANDLORD')}
+                  className={`px-3 py-1 text-xs ${contactFilter === 'LANDLORD' ? 'bg-[#e2b714]/10 text-[#e2b714]' : 'bg-white text-gray-600'}`}
+                >
+                  Landlords
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContactFilter('TENANT')}
+                  className={`px-3 py-1 text-xs ${contactFilter === 'TENANT' ? 'bg-[#e2b714]/10 text-[#e2b714]' : 'bg-white text-gray-600'}`}
+                >
+                  Tenants
+                </button>
+              </div>
+            </div>
+          )}
+          {/* Quick-pick chips for both landlord and tenant */}
+          {contacts.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {contacts.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, receiverId: c.id, receiverEmail: '' }))}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    form.receiverId === c.id
+                      ? 'bg-[#e2b714]/10 text-[#e2b714] border border-[#e2b714]/30'
+                      : 'bg-gray-100 text-gray-600 border border-transparent hover:bg-gray-200'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      c.role === 'LANDLORD' || c.role === 'SUPER_ADMIN' ? 'bg-blue-500' : 'bg-emerald-500'
+                    }`}
+                  />
+                  {c.firstName} {c.lastName}
+                  <span className="text-[10px] opacity-60">
+                    ({c.role === 'LANDLORD' || c.role === 'SUPER_ADMIN' ? 'Landlord' : 'Tenant'})
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           <Input
             name="subject"
             label="Subject"
@@ -245,6 +403,14 @@ export default function MessagesPage() {
             required
             value={form.subject}
             onChange={(e) => handleChange('subject', e.target.value)}
+          />
+          {/* Allow manual recipient email when contacts are unavailable or for external recipients */}
+          <Input
+            name="receiverEmail"
+            label="Or enter recipient email"
+            placeholder="someone@example.com"
+            value={form.receiverEmail}
+            onChange={(e) => handleChange('receiverEmail', e.target.value)}
           />
           <div>
             <label className="block text-sm font-medium text-foreground/80 mb-1.5">
@@ -271,7 +437,7 @@ export default function MessagesPage() {
           </div>
         </form>
       </Modal>
-      <SendMailModal open={mailOpen} onClose={() => setMailOpen(false)} />
+      <SendMessageModal open={mailOpen} onClose={() => setMailOpen(false)} />
     </DashboardLayout>
   );
 }

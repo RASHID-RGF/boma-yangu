@@ -32,7 +32,7 @@ export const ROUTE_ACCESS: RouteRule[] = [
   { prefix: '/payments', roles: FINANCIAL_ROLES },
   { prefix: '/invoices', roles: FINANCIAL_ROLES },
   { prefix: '/maintenance', roles: ALL_ROLES },
-  { prefix: '/leases', roles: MANAGEMENT_ROLES },
+  { prefix: '/leases', roles: ALL_ROLES },
   { prefix: '/reports', roles: MANAGEMENT_ROLES },
   { prefix: '/documents', roles: FINANCIAL_ROLES },
   { prefix: '/messages', roles: ALL_ROLES },

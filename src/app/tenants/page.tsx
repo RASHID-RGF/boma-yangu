@@ -15,7 +15,7 @@ import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { UserRole } from '@/types';
 import {
   Users, Search, Phone, Mail, DoorOpen,
-  Landmark, RefreshCw, Inbox, UserCog, UserPlus, Send,
+  Landmark, RefreshCw, Inbox, UserCog, UserPlus, Send, MessageSquare,
 } from 'lucide-react';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 
@@ -217,8 +217,8 @@ export default function TenantsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             <button
               onClick={fetchTenants}

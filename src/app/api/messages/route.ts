@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
+import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { findUserByEmail, sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
@@ -22,12 +23,76 @@ const markReadSchema = z.object({
   id: z.string().min(1),
 });
 
+const CONTACT_SELECT = { id: true, firstName: true, lastName: true, role: true } as const;
+type ContactRow = { id: string; firstName: string; lastName: string; role: string };
+
+/**
+ * Contacts linked to a set of properties: the owner(s) (landlord) plus every
+ * active, room-allocated tenant who has signed up for an account.
+ */
+async function contactsForProperties(propertyIds: string[], selfId: string): Promise<ContactRow[]> {
+  const contacts: ContactRow[] = [];
+
+  const properties = await prisma.property.findMany({
+    where: { id: { in: propertyIds } },
+    select: { ownerId: true },
+  });
+  const ownerIds = Array.from(new Set(properties.map((p) => p.ownerId))).filter(
+    (id) => id !== selfId
+  );
+  if (ownerIds.length > 0) {
+    const owners = await prisma.user.findMany({
+      where: { id: { in: ownerIds } },
+      select: CONTACT_SELECT,
+    });
+    contacts.push(...owners);
+  }
+
+  const tenants = await prisma.tenant.findMany({
+    where: {
+      unitId: { not: null },
+      unit: { propertyId: { in: propertyIds } },
+      isActive: true,
+      userId: { not: null },
+    },
+    select: { userId: true },
+  });
+  const tenantUserIds = Array.from(
+    new Set(tenants.map((t) => t.userId).filter((id): id is string => !!id && id !== selfId))
+  );
+  if (tenantUserIds.length > 0) {
+    const users = await prisma.user.findMany({
+      where: { id: { in: tenantUserIds } },
+      select: CONTACT_SELECT,
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    });
+    for (const u of users) {
+      if (!contacts.find((c) => c.id === u.id)) contacts.push(u);
+    }
+  }
+
+  return contacts;
+}
+
+async function findContactUsers(roles: string[], selfId: string): Promise<ContactRow[]> {
+  return prisma.user.findMany({
+    where: { role: { in: roles }, id: { not: selfId } },
+    select: CONTACT_SELECT,
+    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+  });
+}
+
 export async function GET() {
   try {
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Tenant: resolve their room context (unit + property) for the UI.
+    const tenantRecord = !isManagementRole(session.role)
+      ? await ensureTenantRecord(session.userId)
+      : null;
 
     // A user sees messages they sent or received.
     const messages = await prisma.message.findMany({
@@ -37,20 +102,79 @@ export async function GET() {
       include: {
         sender: { select: { id: true, firstName: true, lastName: true, role: true } },
         receiver: { select: { id: true, firstName: true, lastName: true, role: true } },
+        unit: { select: { id: true, unitNumber: true } },
+        tenant: { select: { id: true, firstName: true, lastName: true } },
       },
     });
 
-    // Contacts to pick from when composing. Tenants can only message the estate team
-    // (landlord); staff can message anyone except themselves.
-    const contacts = await prisma.user.findMany({
-      where: isManagementRole(session.role)
-        ? { id: { not: session.userId } }
-        : { id: { not: session.userId }, role: { in: ['LANDLORD', 'SUPER_ADMIN'] } },
-      select: { id: true, firstName: true, lastName: true, role: true },
-      orderBy: { firstName: 'asc' },
-    });
+    // Contacts to pick from when composing. Every role gets a sensible list:
+    // estate-wide roles see landlords + tenants, landlords see the tenants of
+    // ALL their properties, caretakers see their assigned properties, and
+    // tenants see their landlord + co-tenants (or all landlords until a room
+    // is allocated to them).
+    let contacts: ContactRow[] = [];
+    let contactsNote: string | null = null;
 
-    return NextResponse.json({ success: true, data: messages, contacts });
+    if (session.role === 'SUPER_ADMIN' || session.role === 'MANAGER') {
+      // Estate-wide roles can message any landlord or tenant.
+      contacts = await findContactUsers(['LANDLORD', 'TENANT'], session.userId);
+    } else if (session.role === 'CARETAKER') {
+      const assignments = await prisma.caretakerAssignment.findMany({
+        where: { caretakerId: session.userId },
+        select: { propertyId: true },
+      });
+      const propertyIds = assignments.map((a) => a.propertyId);
+      if (propertyIds.length > 0) {
+        contacts = await contactsForProperties(propertyIds, session.userId);
+      } else {
+        contactsNote = 'You are not assigned to any property yet.';
+      }
+    } else if (isManagementRole(session.role)) {
+      // Landlord: tenants with accounts in ALL their properties.
+      const properties = await prisma.property.findMany({
+        where: { ownerId: session.userId },
+        select: { id: true },
+      });
+      if (properties.length > 0) {
+        contacts = await contactsForProperties(
+          properties.map((p) => p.id),
+          session.userId
+        );
+        if (contacts.length === 0) {
+          contactsNote =
+            'No tenants yet — tenants appear here once they are added to your properties and sign up.';
+        }
+      } else {
+        contactsNote = 'Add a property first — your tenants will appear here.';
+      }
+    } else if (tenantRecord?.unit?.propertyId) {
+      // Tenant with an allocated room: their landlord + co-tenants.
+      contacts = await contactsForProperties([tenantRecord.unit.propertyId], session.userId);
+    } else {
+      // Tenant without a room yet: fall back to all landlords/admins so they
+      // can still reach management (e.g. to ask about allocation).
+      contacts = await findContactUsers(['LANDLORD', 'SUPER_ADMIN'], session.userId);
+      if (contacts.length === 0) {
+        contactsNote = 'No landlords available yet.';
+      }
+    }
+
+    if (contacts.length === 0 && !contactsNote) {
+      contactsNote = 'No contacts available yet.';
+    }
+
+    // Room context for the tenant's UI.
+    const room = tenantRecord?.unit
+      ? {
+          id: tenantRecord.unit.id,
+          unitNumber: tenantRecord.unit.unitNumber,
+          property: tenantRecord.unit.property
+            ? { id: tenantRecord.unit.property.id, name: tenantRecord.unit.property.name }
+            : null,
+        }
+      : null;
+
+    return NextResponse.json({ success: true, data: messages, contacts, contactsNote, room });
   } catch (error) {
     console.error('List messages error:', error);
     return NextResponse.json({ success: false, error: 'Failed to fetch messages' }, { status: 500 });
@@ -81,16 +205,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'You cannot message yourself' }, { status: 400 });
     }
 
+    // Attach room context (tenantId + unitId) so the message is room-scoped,
+    // exactly like payments and invoices.
+    let tenantRecordId: string | undefined;
+    let unitRecordId: string | undefined;
+    if (!isManagementRole(session.role)) {
+      // Tenant → Landlord: use the sender's own tenant record.
+      const tenantRecord = await ensureTenantRecord(session.userId);
+      if (tenantRecord) {
+        tenantRecordId = tenantRecord.id;
+        unitRecordId = tenantRecord.unitId || undefined;
+      }
+    } else if (receiver.role === 'TENANT') {
+      // Landlord → Tenant: find the recipient's tenant record so the message
+      // is tagged with the tenant's room, not the landlord's profile.
+      const recipientTenant = await prisma.tenant.findFirst({
+        where: { userId: receiver.id },
+        select: { id: true, unitId: true },
+      });
+      if (recipientTenant) {
+        tenantRecordId = recipientTenant.id;
+        unitRecordId = recipientTenant.unitId || undefined;
+      }
+    }
+
     const message = await prisma.message.create({
       data: {
         senderId: session.userId,
         receiverId: receiver.id,
         subject: validated.subject,
         content: validated.content,
+        ...(tenantRecordId ? { tenantId: tenantRecordId } : {}),
+        ...(unitRecordId ? { unitId: unitRecordId } : {}),
       },
       include: {
         sender: { select: { id: true, firstName: true, lastName: true, role: true } },
         receiver: { select: { id: true, firstName: true, lastName: true, role: true } },
+        unit: { select: { id: true, unitNumber: true } },
       },
     });
 

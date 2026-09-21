@@ -14,7 +14,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   FolderOpen, FileText, FileSignature, File, Download, RefreshCw, ShieldCheck,
-  Receipt, Plus, ExternalLink, Mail,
+  Receipt, Plus, ExternalLink, Mail, MessageSquare,
 } from 'lucide-react';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 
@@ -157,8 +157,8 @@ export default function DocumentsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             <button
               onClick={fetchDocuments}

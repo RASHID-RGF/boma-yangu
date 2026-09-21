@@ -13,7 +13,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   DoorOpen, Home, Landmark, Phone, Mail, Wallet, Plus, RefreshCw,
-  Inbox, CheckCircle2, UserCog, Smartphone, Send,
+  Inbox, CheckCircle2, UserCog, Smartphone, Send, MessageSquare,
 } from 'lucide-react';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 import {
@@ -74,6 +74,7 @@ interface RoomPayment {
 
 const METHOD_LABELS: Record<string, string> = {
   MPESA_STK_PUSH: 'M-Pesa STK Push',
+  MPESA_PAY_LINK: 'M-Pesa Pay Link',
   MPESA_PAYBILL: 'M-Pesa Paybill',
   MPESA_TILL_NUMBER: 'M-Pesa Till',
   BANK_TRANSFER: 'Bank Transfer',
@@ -159,8 +160,8 @@ export default function MyRoomPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             <button
               onClick={fetchRoom}

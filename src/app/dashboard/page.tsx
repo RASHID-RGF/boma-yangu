@@ -9,7 +9,7 @@ import { useDashboardStore } from '@/store/dashboard';
 import { formatCurrency, formatDate, formatPercentage } from '@/lib/utils/format';
 import type { DashboardStats } from '@/types';import { Building2, DoorOpen, Users, Wallet, TrendingUp, AlertCircle, FileText,
   Wrench, ArrowUpRight, ArrowDownRight, Plus, MoreHorizontal,
-  CalendarDays, Download, RefreshCw, Mail,
+  CalendarDays, Download, RefreshCw, Mail, MessageSquare,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
@@ -165,8 +165,8 @@ export default function DashboardPage() {
               Refresh
             </Button>
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)}>
-              <Mail className="w-4 h-4 mr-2" />
-              Send Mail
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Send Message
             </Button>
             {isManagement && (
               <Link href="/reports">

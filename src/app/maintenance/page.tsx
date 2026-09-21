@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge, STATUS_VARIANTS } from '@/components/ui/badge';
@@ -12,7 +13,7 @@ import { Modal } from '@/components/ui/modal';
 import { formatDate } from '@/lib/utils/format';
 import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
-import { Wrench, Plus, RefreshCw, Inbox, AlertTriangle, CheckCircle2, Mail } from 'lucide-react';
+import { Wrench, Plus, RefreshCw, Inbox, AlertTriangle, CheckCircle2, Mail, DoorOpen, Home, MessageSquare } from 'lucide-react';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 
 interface MaintenanceRow {
@@ -24,6 +25,12 @@ interface MaintenanceRow {
   createdAt: string;
   unit?: { unitNumber: string } | null;
   assignedTo?: { firstName: string; lastName: string } | null;
+}
+
+interface RoomContext {
+  id: string;
+  unitNumber: string;
+  property?: { id: string; name: string } | null;
 }
 
 const PRIORITY_VARIANTS: Record<string, 'danger' | 'warning' | 'info' | 'default'> = {
@@ -51,10 +58,12 @@ const STATUS_OPTIONS = [
 export default function MaintenancePage() {
   const { user } = useAuth();
   const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
+  const isTenant = user?.role === UserRole.TENANT;
   // Both tenants and management can report issues.
   const canReport = true;
   const [requests, setRequests] = useState<MaintenanceRow[]>([]);
   const [stats, setStats] = useState({ openCount: 0, count: 0, urgentCount: 0 });
+  const [room, setRoom] = useState<RoomContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mailOpen, setMailOpen] = useState(false);
@@ -77,12 +86,28 @@ export default function MaintenancePage() {
       setStats(result.stats);
       // Seed the status draft for each request so the dropdown matches reality.
       setStatusDrafts(Object.fromEntries(result.data.map((r: MaintenanceRow) => [r.id, r.status])));
+      // Tenant: also fetch room context so the page shows which room these requests are for.
+      if (!isManagement) {
+        try {
+          const roomRes = await fetch('/api/my-room');
+          const roomResult = await roomRes.json();
+          if (roomRes.ok && roomResult.success && roomResult.data?.unit) {
+            setRoom({
+              id: roomResult.data.unit.id,
+              unitNumber: roomResult.data.unit.unitNumber,
+              property: roomResult.data.unit.property || null,
+            });
+          }
+        } catch {
+          // Room context is optional for the maintenance page.
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load requests');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isManagement]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
@@ -160,8 +185,8 @@ export default function MaintenancePage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             <button
               onClick={fetchRequests}
@@ -178,6 +203,49 @@ export default function MaintenancePage() {
             )}
           </div>
         </div>
+
+        {/* Tenant: Your Room context — same pattern as My Room */}
+        {isTenant && room && (
+          <Card className="border-blue-200 bg-blue-50/50">
+            <CardContent className="p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-100">
+                  <DoorOpen className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    Your room: {room.unitNumber}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {room.property?.name || 'Your property'} — maintenance for your room
+                  </p>
+                </div>
+              </div>
+              <Link href="/my-room">
+                <Button variant="outline" size="sm" className="gap-1.5 whitespace-nowrap">
+                  View My Room
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tenant: No room allocated */}
+        {isTenant && !room && (
+          <Card className="border-amber-200 bg-amber-50/50">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-100">
+                <Home className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">No room allocated yet</p>
+                <p className="text-xs text-gray-500">
+                  Your landlord has not allocated you a room. Once they do, your maintenance requests will be linked to it.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Summary */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

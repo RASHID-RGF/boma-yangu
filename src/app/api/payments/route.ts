@@ -12,6 +12,7 @@ import {
 } from '@/lib/payments/palpluss';
 import { finalizePayment, isPalplussConfigured } from '@/lib/payments/finalize';
 import { resolveChannelId } from '@/lib/payments/palpluss';
+import { isPayLinkConfigured } from '@/lib/payments/pay-link-server';
 import { z } from 'zod';
 
 /**
@@ -33,7 +34,8 @@ const createPaymentSchema = z.object({
     .enum(['MPESA_STK_PUSH', 'MPESA_PAYBILL', 'MPESA_TILL_NUMBER', 'BANK_TRANSFER', 'CASH'])
     .optional(),
   // Hosted-link payments: create the PENDING record now; the PalPluss webhook
-  // finalizes it when the tenant completes the hosted checkout.
+  // (or the sync-link reconciliation) finalizes it when the tenant completes
+  // the hosted checkout.
   payViaLink: z.boolean().optional(),
 });
 
@@ -262,12 +264,38 @@ export async function POST(request: Request) {
     // so the webhook's unique-match fallback can never see an ambiguous
     // phone+amount pair.
     if (isTenant && validated.payViaLink) {
+      if (!isPayLinkConfigured()) {
+        await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+        return NextResponse.json(
+          { success: false, error: 'Payment link is not available. Contact the administrator.' },
+          { status: 503 }
+        );
+      }
+      if (!isValidSafaricomPhoneNumber(phoneNumber)) {
+        await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+        return NextResponse.json(
+          { success: false, error: 'Enter a valid Safaricom mobile number — it identifies your payment at checkout.' },
+          { status: 400 }
+        );
+      }
+      // The record is finalized by the webhook or the sync-link reconciliation
+      // matching on phone + amount — mark it as a link payment so those paths
+      // can pick it out unambiguously.
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { method: 'MPESA_PAY_LINK' },
+      });
+      // Cancel earlier OPEN link records for this tenant so exactly one
+      // PENDING MPESA_PAY_LINK record exists at a time — the webhook's
+      // phone+amount fallback and the sync reconciliation can then never see
+      // an ambiguous match (checkoutRequestId is null only for link records,
+      // so an in-flight STK push is never cancelled).
       await prisma.payment.updateMany({
         where: {
           id: { not: payment.id },
           tenantId: payment.tenantId,
-          invoiceId: invoice?.id ?? undefined,
           status: 'PENDING',
+          method: 'MPESA_PAY_LINK',
           checkoutRequestId: null,
         },
         data: { status: 'CANCELLED' },
@@ -278,6 +306,9 @@ export async function POST(request: Request) {
           data: {
             paymentId: payment.id,
             status: 'PENDING',
+            // Echoed to the checkout so the tenant pays from the same number
+            // the record was created with (the webhook matches on phone).
+            phoneNumber,
             message: 'Complete your payment on the secure payment link.',
           },
         },

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge, STATUS_VARIANTS } from '@/components/ui/badge';
@@ -14,11 +15,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types';
 import {
   FileText, Search, AlertCircle, RefreshCw, Inbox, Plus,
-  CreditCard, Send, Phone, Mail,
+  CreditCard, Send, Phone, Mail, ExternalLink, CheckCircle2, RefreshCw as RefreshCwIcon,
+  DoorOpen, Home, MessageSquare,
 } from 'lucide-react';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 import { useStkWait } from '@/hooks/useStkWait';
 import { Smartphone as SmartphoneIcon } from 'lucide-react';
+import { buildPayLinkUrl, getPayLinkUrl } from '@/lib/payments/pay-link';
+import { isValidSafaricomPhoneNumber } from '@/lib/payments/phone';
 
 interface InvoiceRow {
   id: string;
@@ -43,15 +47,21 @@ interface TenantOption {
   unit?: { unitNumber: string; property?: { name: string } } | null;
 }
 
+interface RoomContext {
+  id: string;
+  unitNumber: string;
+  property?: { id: string; name: string } | null;
+}
+
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Hosted PalPluss checkout (NEXT_PUBLIC so it's available in the browser).
-const PAY_LINK_URL = process.env.NEXT_PUBLIC_PALPLUSS_PAY_LINK_URL;
+const PAY_LINK_URL = getPayLinkUrl();
 
 /** Opens the hosted PalPluss checkout with the invoice balance prefilled. */
-function openPayLink(balance: number) {
-  const url = `${PAY_LINK_URL}?amount=${Math.round(balance)}`;
-  window.open(url, '_blank', 'noopener,noreferrer');
+function openPayLink(balance: number, reference?: string) {
+  const url = buildPayLinkUrl(balance, reference);
+  if (url) window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 const EMPTY_NEW_INVOICE = {
@@ -73,8 +83,10 @@ const EMPTY_NEW_INVOICE = {
 export default function InvoicesPage() {
   const { user } = useAuth();
   const isManagement = !!user && (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.LANDLORD);
+  const isTenant = user?.role === UserRole.TENANT;
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [stats, setStats] = useState({ outstanding: 0, count: 0, overdueCount: 0 });
+  const [room, setRoom] = useState<RoomContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -87,6 +99,13 @@ export default function InvoicesPage() {
   // countdown while the tenant enters their PIN, and long-polls until the
   // provider callback finalizes the payment (or the minute elapses).
   const stkWait = useStkWait();
+
+  // "Waiting on the PalPluss checkout tab" state for pay-link payments: the
+  // modal switches to a pending view and polls /api/payments/sync-link (plus
+  // the payment status endpoint) until the webhook or the sync reconciliation
+  // confirms the payment, or the tenant dismisses the wait.
+  const [linkWait, setLinkWait] = useState<{ paymentId: string; reference: string } | null>(null);
+  const [linkDone, setLinkDone] = useState<{ ok: boolean; code?: string | null } | null>(null);
 
   // New Invoice modal (management)
   const [mailOpen, setMailOpen] = useState(false);
@@ -104,6 +123,22 @@ export default function InvoicesPage() {
       if (!res.ok || !result.success) throw new Error(result.error || 'Failed to load invoices');
       setInvoices(result.data);
       setStats(result.stats);
+      // Tenant: also fetch room context so the page shows which room these invoices are for.
+      if (!isManagement) {
+        try {
+          const roomRes = await fetch('/api/my-room');
+          const roomResult = await roomRes.json();
+          if (roomRes.ok && roomResult.success && roomResult.data?.unit) {
+            setRoom({
+              id: roomResult.data.unit.id,
+              unitNumber: roomResult.data.unit.unitNumber,
+              property: roomResult.data.unit.property || null,
+            });
+          }
+        } catch {
+          // Room context is optional for the invoices page.
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load invoices');
     } finally {
@@ -199,9 +234,14 @@ export default function InvoicesPage() {
   }, [stkWait.phase]);
 
   // Hosted-link path: create the PENDING payment record first (so the PalPluss
-  // webhook can match it), then open the checkout page in a new tab.
+  // webhook or the sync-link reconciliation can match it), then open the
+  // checkout page in a new tab and keep a waiting view until it's confirmed.
   const handlePayViaLink = async () => {
     if (!payInvoice || !PAY_LINK_URL) return;
+    if (payPhone.trim() && !isValidSafaricomPhoneNumber(payPhone.trim())) {
+      toast.error('Enter a valid Safaricom number (07… or 2547…) — your payment is matched by this number');
+      return;
+    }
     setPaying(true);
     try {
       const res = await fetch('/api/payments', {
@@ -216,7 +256,8 @@ export default function InvoicesPage() {
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error(result.error || 'Payment failed');
       toast.success(result.data.message || 'Opening secure payment link...');
-      openPayLink(payInvoice.balance);
+      openPayLink(payInvoice.balance, payInvoice.invoiceNumber);
+      setLinkWait({ paymentId: result.data.paymentId, reference: payInvoice.invoiceNumber });
       setPayInvoice(null);
       setPayPhone('');
       await fetchInvoices();
@@ -226,6 +267,57 @@ export default function InvoicesPage() {
       setPaying(false);
     }
   };
+
+  // Polls while the tenant is on the checkout tab: the sync endpoint asks
+  // PalPluss for a matching transaction (webhook fallback) and the status
+  // endpoint resolves the moment anything finalizes the record.
+  useEffect(() => {
+    if (!linkWait || linkDone) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const tick = async () => {
+      try {
+        const [syncRes, statusRes] = await Promise.allSettled([
+          fetch('/api/payments/sync-link', { signal: controller.signal, cache: 'no-store' }),
+          fetch(`/api/payments/${linkWait.paymentId}/status`, { signal: controller.signal, cache: 'no-store' }),
+        ]);
+        if (cancelled) return;
+        let finished: { ok: boolean; code?: string | null } | null = null;
+        if (syncRes.status === 'fulfilled' && syncRes.value.ok) {
+          const result = await syncRes.value.json().catch(() => null);
+          if (result?.synced) finished = { ok: true, code: result.data?.transactionCode };
+        }
+        if (!finished && statusRes.status === 'fulfilled' && statusRes.value.ok) {
+          const result = await statusRes.value.json().catch(() => null);
+          const status = result?.data?.status;
+          if (status === 'COMPLETED' || status === 'PARTIAL') {
+            finished = { ok: true, code: result.data?.transactionCode || result.data?.receiptNumber };
+          } else if (status && status !== 'PENDING') {
+            finished = { ok: false };
+          }
+        }
+        if (finished) {
+          setLinkDone(finished);
+          await fetchInvoices();
+        }
+      } catch {
+        // transient network error — retry on the next tick
+      }
+    };
+    tick();
+    const interval = setInterval(tick, 4_000);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [linkWait, linkDone, fetchInvoices]);
+
+  // Close the link-wait overlay once the payment resolves.
+  const dismissLinkWait = useCallback(() => {
+    setLinkWait(null);
+    setLinkDone(null);
+  }, []);
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,8 +391,8 @@ export default function InvoicesPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             <button
               onClick={fetchInvoices}
@@ -322,6 +414,49 @@ export default function InvoicesPage() {
             )}
           </div>
         </div>
+
+        {/* Tenant: Your Room context — same pattern as My Room */}
+        {isTenant && room && (
+          <Card className="border-blue-200 bg-blue-50/50">
+            <CardContent className="p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-100">
+                  <DoorOpen className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    Your room: {room.unitNumber}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {room.property?.name || 'Your property'} — invoices for your room
+                  </p>
+                </div>
+              </div>
+              <Link href="/my-room">
+                <Button variant="outline" size="sm" className="gap-1.5 whitespace-nowrap">
+                  View My Room
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tenant: No room allocated */}
+        {isTenant && !room && (
+          <Card className="border-amber-200 bg-amber-50/50">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-100">
+                <Home className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">No room allocated yet</p>
+                <p className="text-xs text-gray-500">
+                  Your landlord has not allocated you a room. Once they do, your invoices will appear here.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Summary */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -485,9 +620,9 @@ export default function InvoicesPage() {
             required
           />
           <p className="text-xs text-[#646669]">
-            An M-Pesa STK push will be sent to this number. If you use the payment link, make sure
-            you enter this same M-Pesa number at checkout so your payment is matched. In demo mode
-            (no PalPluss API key) the payment is recorded instantly with a simulated transaction code.
+            An M-Pesa STK push will be sent to this number. If you use the payment link, any
+            M-Pesa number can pay at checkout — just enter the same number you typed above so
+            your payment is matched automatically.
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setPayInvoice(null)}>
@@ -501,7 +636,7 @@ export default function InvoicesPage() {
                 onClick={handlePayViaLink}
                 loading={paying}
               >
-                <CreditCard className="w-4 h-4" />
+                <ExternalLink className="w-4 h-4" />
                 Pay via Link
               </Button>
             )}
@@ -511,6 +646,57 @@ export default function InvoicesPage() {
             </Button>
           </div>
         </form>
+        )}
+      </Modal>
+
+      {/* Waiting-for-checkout overlay while the tenant pays on the PalPluss tab */}
+      <Modal
+        open={!!linkWait}
+        onClose={dismissLinkWait}
+        title="Complete your payment"
+        subtitle="A secure PalPluss checkout was opened in a new tab"
+      >
+        {linkDone ? (
+          <div className="space-y-4 py-2 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50">
+              <CheckCircle2 className={`h-7 w-7 ${linkDone.ok ? 'text-emerald-600' : 'text-red-500'}`} />
+            </div>
+            <p className="text-sm font-medium text-gray-900">
+              {linkDone.ok ? 'Payment received successfully' : 'The payment was not completed'}
+            </p>
+            {linkDone.ok && linkDone.code && (
+              <p className="text-xs text-[#646669]">Receipt: {linkDone.code}</p>
+            )}
+            {!linkDone.ok && (
+              <p className="text-xs text-[#646669]">
+                You can close the checkout tab and try again.
+              </p>
+            )}
+            <Button onClick={dismissLinkWait} className="w-full">
+              Done
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-blue-50">
+              <ExternalLink className="h-7 w-7 text-blue-600 animate-pulse" />
+            </div>
+            <p className="text-sm font-medium text-gray-900">
+              Finish the payment on the checkout tab
+            </p>
+            <p className="text-xs text-[#646669]">
+              Enter your M-Pesa PIN there using the number <strong>{payPhone || 'you registered'}</strong> —
+              this page updates automatically once your payment lands. Amount and reference
+              {linkWait?.reference ? ` (${linkWait.reference})` : ''} were prefilled.
+            </p>
+            <div className="flex items-center justify-center gap-1.5 text-xs text-[#646669]">
+              <RefreshCwIcon className="w-3.5 h-3.5 animate-spin" />
+              Waiting for confirmation…
+            </div>
+            <Button variant="outline" onClick={dismissLinkWait} className="w-full">
+              Close and check invoices later
+            </Button>
+          </div>
         )}
       </Modal>
 

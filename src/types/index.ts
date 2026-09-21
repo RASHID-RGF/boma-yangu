@@ -40,6 +40,7 @@ export enum PaymentStatus {
 
 export enum PaymentMethod {
   MPESA_STK_PUSH = 'MPESA_STK_PUSH',
+  MPESA_PAY_LINK = 'MPESA_PAY_LINK',
   MPESA_PAYBILL = 'MPESA_PAYBILL',
   MPESA_TILL_NUMBER = 'MPESA_TILL_NUMBER',
   BANK_TRANSFER = 'BANK_TRANSFER',
@@ -450,6 +451,7 @@ export const UNIT_STATUS_LABELS: Record<UnitStatus, string> = {
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   [PaymentMethod.MPESA_STK_PUSH]: 'M-Pesa STK Push',
+  [PaymentMethod.MPESA_PAY_LINK]: 'M-Pesa Pay Link',
   [PaymentMethod.MPESA_PAYBILL]: 'M-Pesa Paybill',
   [PaymentMethod.MPESA_TILL_NUMBER]: 'M-Pesa Till Number',
   [PaymentMethod.BANK_TRANSFER]: 'Bank Transfer',

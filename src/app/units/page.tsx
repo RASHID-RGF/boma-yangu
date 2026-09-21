@@ -15,7 +15,7 @@ import { UNIT_STATUS_LABELS, UserRole } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 import {
-  DoorOpen, Search, Home, Users, Landmark, RefreshCw, Inbox, UserPlus, Phone, Mail, Plus, Wallet, Send,
+  DoorOpen, Search, Home, Users, Landmark, RefreshCw, Inbox, UserPlus, Phone, Mail, Plus, Wallet, Send, MessageSquare,
 } from 'lucide-react';
 
 interface UnitRow {
@@ -277,8 +277,8 @@ export default function UnitsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setMailOpen(true)} className="gap-2">
-              <Mail className="w-4 h-4" />
-              Send Mail
+              <MessageSquare className="w-4 h-4" />
+              Send Message
             </Button>
             {isManagement && (
               <Button className="gap-2" onClick={openAddUnit}>

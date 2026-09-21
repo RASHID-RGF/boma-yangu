@@ -1,43 +1,77 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Mail, Send, User } from 'lucide-react';
+import { Select } from '@/components/ui/select';
+import { MessageSquare, Send } from 'lucide-react';
 
-interface SendMailModalProps {
+interface Contact {
+  id: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+}
+
+interface SendMessageModalProps {
   open: boolean;
   onClose: () => void;
-  /** Pre-fill the recipient email (e.g. when clicking from a tenant card). */
-  defaultTo?: string;
+  /** Pre-fill the recipient (e.g. when replying to a specific person). */
+  defaultReceiverId?: string;
   /** Pre-fill the subject line. */
   defaultSubject?: string;
 }
 
-export function SendMailModal({
+export function SendMessageModal({
   open,
   onClose,
-  defaultTo = '',
+  defaultReceiverId = '',
   defaultSubject = '',
-}: SendMailModalProps) {
-  const [to, setTo] = useState(defaultTo);
+}: SendMessageModalProps) {
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactsNote, setContactsNote] = useState<string | null>(null);
+  const [receiverId, setReceiverId] = useState(defaultReceiverId);
+  const [receiverEmail, setReceiverEmail] = useState('');
   const [subject, setSubject] = useState(defaultSubject);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [contactFilter, setContactFilter] = useState<'ALL' | 'LANDLORD' | 'TENANT'>('ALL');
 
-  // Reset fields when the modal opens with new defaults.
-  const handleOpen = useCallback(() => {
-    setTo(defaultTo);
+  // Load contacts from the messages API (same source as the messages page).
+  useEffect(() => {
+    if (!open) return;
+    setReceiverId(defaultReceiverId);
     setSubject(defaultSubject);
     setMessage('');
-  }, [defaultTo, defaultSubject]);
+    setLoadingContacts(true);
+    fetch('/api/messages')
+      .then((res) => res.json())
+      .then((result) => {
+        if (result.success) {
+          setContacts(result.contacts || []);
+          setContactsNote(result.contactsNote || null);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingContacts(false));
+  }, [open, defaultReceiverId, defaultSubject]);
+
+  const filteredContacts = contacts.filter((c) =>
+    contactFilter === 'ALL' ? true : contactFilter === 'LANDLORD' ? c.role === 'LANDLORD' || c.role === 'SUPER_ADMIN' : c.role === 'TENANT'
+  );
+
+  const contactOptions = filteredContacts.map((c) => ({
+    value: c.id,
+    label: `${c.firstName} ${c.lastName} (${c.role.replace(/_/g, ' ')})`,
+  }));
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!to.trim()) {
-      toast.error('Enter a recipient email');
+    if (!receiverId && !receiverEmail.trim()) {
+      toast.error('Select a recipient or enter an email');
       return;
     }
     if (!subject.trim()) {
@@ -51,24 +85,24 @@ export function SendMailModal({
 
     setSending(true);
     try {
-      // Resolve the recipient user by email, then send via the messages API.
       const res = await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          receiverEmail: to.trim(),
+          receiverId: receiverId || undefined,
+          receiverEmail: receiverId ? undefined : receiverEmail.trim(),
           subject: subject.trim(),
           content: message.trim(),
         }),
       });
       const result = await res.json();
       if (!res.ok || !result.success) {
-        throw new Error(result.error || 'Failed to send email');
+        throw new Error(result.error || 'Failed to send message');
       }
-      toast.success('Email sent successfully');
+      toast.success('Message sent');
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to send email');
+      toast.error(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
       setSending(false);
     }
@@ -78,19 +112,90 @@ export function SendMailModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Send Email"
-      subtitle="Send an email notification to a landlord or tenant"
+      title="Send Message"
+      subtitle="Send a message to the landlord or tenant"
     >
       <form onSubmit={handleSend} className="space-y-4">
+        <Select
+          name="receiverId"
+          label="To"
+          placeholder={
+            loadingContacts
+              ? 'Loading contacts...'
+              : contacts.length === 0
+                ? 'No contacts available'
+                : 'Select a recipient'
+          }
+          options={contactOptions}
+          value={receiverId}
+          onChange={(e) => setReceiverId(e.target.value)}
+        />
+        {!loadingContacts && contacts.length === 0 && (
+          <p className="text-xs text-amber-500/90 bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2">
+            {contactsNote || 'No contacts available yet.'}
+          </p>
+        )}
+        {contacts.length > 0 && (
+          <>
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-gray-500">Filter:</div>
+              <div className="inline-flex rounded-lg overflow-hidden border border-border">
+                <button
+                  type="button"
+                  onClick={() => setContactFilter('ALL')}
+                  className={`px-3 py-1 text-xs ${contactFilter === 'ALL' ? 'bg-[#e2b714]/10 text-[#e2b714]' : 'bg-white text-gray-600'}`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContactFilter('LANDLORD')}
+                  className={`px-3 py-1 text-xs ${contactFilter === 'LANDLORD' ? 'bg-[#e2b714]/10 text-[#e2b714]' : 'bg-white text-gray-600'}`}
+                >
+                  Landlords
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContactFilter('TENANT')}
+                  className={`px-3 py-1 text-xs ${contactFilter === 'TENANT' ? 'bg-[#e2b714]/10 text-[#e2b714]' : 'bg-white text-gray-600'}`}
+                >
+                  Tenants
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {filteredContacts.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setReceiverId(c.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    receiverId === c.id
+                      ? 'bg-[#e2b714]/10 text-[#e2b714] border border-[#e2b714]/30'
+                      : 'bg-gray-100 text-gray-600 border border-transparent hover:bg-gray-200'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      c.role === 'LANDLORD' || c.role === 'SUPER_ADMIN' ? 'bg-blue-500' : 'bg-emerald-500'
+                    }`}
+                  />
+                  {c.firstName} {c.lastName}
+                  <span className="text-[10px] opacity-60">
+                    ({c.role === 'LANDLORD' || c.role === 'SUPER_ADMIN' ? 'Landlord' : 'Tenant'})
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        {/* Manual email input fallback */}
         <Input
-          name="to"
-          label="Recipient Email"
-          type="email"
-          placeholder="e.g. tenant@example.com"
-          required
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          icon={<Mail className="w-4 h-4" />}
+          name="receiverEmail"
+          label="Or enter recipient email"
+          placeholder="someone@example.com"
+          value={receiverEmail}
+          onChange={(e) => setReceiverId('') || setReceiverEmail(e.target.value)}
         />
         <Input
           name="subject"
@@ -99,7 +204,7 @@ export function SendMailModal({
           required
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          icon={<User className="w-4 h-4" />}
+          icon={<MessageSquare className="w-4 h-4" />}
         />
         <div>
           <label className="block text-sm font-medium text-foreground/80 mb-1.5">
@@ -113,8 +218,8 @@ export function SendMailModal({
           />
         </div>
         <p className="text-xs text-[#646669]">
-          The recipient will receive an email notification with this message and
-          a notification in their Boma Yangu dashboard.
+          The recipient will see this message in their Messages dashboard and receive
+          an email notification.
         </p>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -122,10 +227,16 @@ export function SendMailModal({
           </Button>
           <Button type="submit" loading={sending} className="gap-2">
             <Send className="w-4 h-4" />
-            Send Email
+            Send Message
           </Button>
         </div>
       </form>
     </Modal>
   );
 }
+
+/**
+ * Re-export the old name so existing imports don't break during migration.
+ * New code should import SendMessageModal directly.
+ */
+export const SendMailModal = SendMessageModal;
