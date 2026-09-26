@@ -20,6 +20,11 @@ import {
 import React, { useEffect, useState } from 'react';
 import { SettingsProvider } from '@/lib/settings/context';
 import { SettingsToggleButton, SettingsPanel } from '@/components/settings/settings-panel';
+import { HeroBackdrop, HeroBrightnessControl } from '@/components/home/hero';
+import { Reveal } from '@/components/home/reveal';
+import { FeatureShowcase } from '@/components/home/feature-showcase';
+import { Testimonials } from '@/components/home/testimonials';
+import { BlogSection } from '@/components/home/blog';
 
 function FloatingParticles() {
   const [particles, setParticles] = useState<
@@ -105,7 +110,7 @@ function FeatureCard({
 }) {
   return (
     <div
-      className="card-monkey rounded-2xl p-6 md:p-8 group"
+      className="card-monkey rounded-2xl p-6 md:p-8 group h-full"
       style={{ animationDelay: `${delay}s` }}
     >
       <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-5 group-hover:scale-110 transition-all duration-300 overflow-hidden">
@@ -151,25 +156,44 @@ export default function HomePage() {
     cta: false,
   });
 
+  // The hero fades in on load; every section below reveals as it scrolls
+  // into view instead of all at once after fixed timers.
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsVisible((prev) => ({ ...prev, hero: true }));
     }, 100);
-    const featureTimer = setTimeout(() => {
-      setIsVisible((prev) => ({ ...prev, features: true }));
-    }, 300);
-    const statsTimer = setTimeout(() => {
-      setIsVisible((prev) => ({ ...prev, stats: true }));
-    }, 500);
-    const ctaTimer = setTimeout(() => {
-      setIsVisible((prev) => ({ ...prev, cta: true }));
-    }, 700);
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsVisible({ hero: true, features: true, stats: true, cta: true });
+      return () => clearTimeout(timer);
+    }
+
+    const reveal = (id: string) => {
+      if (id === 'features') setIsVisible((prev) => ({ ...prev, features: true }));
+      else if (id === 'stats') setIsVisible((prev) => ({ ...prev, stats: true }));
+      else if (id === 'cta') setIsVisible((prev) => ({ ...prev, cta: true }));
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            reveal(entry.target.id);
+            observer.unobserve(entry.target);
+          }
+        }
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -5% 0px' }
+    );
+
+    for (const id of ['features', 'stats', 'cta']) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    }
 
     return () => {
       clearTimeout(timer);
-      clearTimeout(featureTimer);
-      clearTimeout(statsTimer);
-      clearTimeout(ctaTimer);
+      observer.disconnect();
     };
   }, []);
 
@@ -268,7 +292,7 @@ export default function HomePage() {
 
         {/* Hero Section */}
         <section className="relative pt-32 md:pt-40 pb-20 md:pb-32 px-4">
-          <div className="hero-overlay absolute inset-x-0 top-0 h-[420px] md:h-[520px] pointer-events-none z-5" />
+          <HeroBackdrop />
           <div
             className={`max-w-5xl mx-auto text-center transition-all duration-1000 relative z-10 hero-content ${
               isVisible.hero ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
@@ -323,11 +347,15 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
+
+            {/* Let visitors brighten or dim the hero photo themselves */}
+            <HeroBrightnessControl />
           </div>
         </section>
 
         {/* Stats Section */}
         <section
+          id="stats"
           className={`py-16 md:py-20 px-4 transition-all duration-1000 ${
             isVisible.stats ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
           }`}
@@ -367,14 +395,26 @@ export default function HomePage() {
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               {features.map((feature, i) => (
-                <FeatureCard key={i} {...feature} delay={i * 0.1} />
+                <Reveal key={i} delay={i * 80} className="h-full">
+                  <FeatureCard {...feature} delay={i * 0.1} />
+                </Reveal>
               ))}
             </div>
           </div>
         </section>
 
+        {/* Deeper feature tour with screenshots */}
+        <FeatureShowcase />
+
+        {/* Social proof */}
+        <Testimonials />
+
+        {/* Blog */}
+        <BlogSection />
+
         {/* CTA Section */}
         <section
+          id="cta"
           className={`py-16 md:py-24 px-4 transition-all duration-1000 ${
             isVisible.cta ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
           }`}

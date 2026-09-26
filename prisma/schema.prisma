@@ -40,6 +40,7 @@ model User {
   ownedProperties                   Property[]            @relation("PropertyOwner")
   sessions                          Session[]
   tenants                           Tenant[]
+  tenantsAdded                      Tenant[]                 @relation("TenantAddedBy")
 }
 
 model Property {
@@ -122,10 +123,16 @@ model Tenant {
   moveInDate          DateTime?
   moveOutDate         DateTime?
   isActive            Boolean              @default(true)
+  /// The management user who added this tenant record (null for profiles a
+  /// person created for themselves by registering). Together with `unitId`
+  /// this is what makes a tenant visible to exactly one landlord: their unit's
+  /// property owner, or the user who added them while they have no unit yet.
+  addedById           String?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   unitId              String?
   userId              String?
+  addedBy             User?                @relation("TenantAddedBy", fields: [addedById], references: [id])
   documents           Document[]
   invoices            Invoice[]
   lease               Lease?
@@ -252,6 +259,10 @@ model Notification {
   readAt          DateTime?
   sentViaEmail    Boolean   @default(false)
   sentViaSms      Boolean   @default(false)
+  /// Set for notifications raised by a message send, so reading the message
+  /// clears its popup/badge.
+  messageId       String?
+  relatedMessage  Message?  @relation(fields: [messageId], references: [id])
   sentViaWhatsApp Boolean   @default(false)
   createdAt       DateTime  @default(now())
   userId          String
@@ -296,6 +307,7 @@ model Message {
   tenant     Tenant?   @relation(fields: [tenantId], references: [id])
   unit       Unit?     @relation(fields: [unitId], references: [id])
   sender     User      @relation("MessageSender", fields: [senderId], references: [id])
+  notifications          Notification[]
 }
 
 model ActivityLog {
@@ -360,9 +372,9 @@ model Backup {
 }
 
 model CaretakerAssignment {
-  id          String   @id
+  id          String   @id @default(uuid())
   createdAt   DateTime @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt
   caretakerId String
   propertyId  String
   User        User     @relation(fields: [caretakerId], references: [id])

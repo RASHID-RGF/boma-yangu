@@ -8,6 +8,7 @@ import {
   normalizePhone,
 } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
+import { classifyExistingTenant, getTenantScopeWhere } from '@/lib/auth/tenant-visibility';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
@@ -33,25 +34,11 @@ export async function GET() {
     }
 
     if (isManagementRole(session.role)) {
-      // Scope to the landlord's own properties (or all for super admin).
-      const propertyWhere =
-        session.role === 'SUPER_ADMIN'
-          ? {}
-          : {
-            ownerId: session.userId,
-            };
-
-      // Include tenants on the landlord's properties AND tenants with no
-      // unit yet (they were added but haven't been assigned a room).
-      const tenantWhere =
-        session.role === 'SUPER_ADMIN'
-          ? {}
-          : {
-              OR: [
-                { unit: { property: propertyWhere } },
-                { unitId: null },
-              ],
-            };
+      // Only tenants this user owns or added: occupants of their units, plus
+      // records they added that have no unit yet. A Tenant profile created by
+      // someone registering themselves has neither a unit nor an addedById, so
+      // it belongs to nobody and never shows up in a landlord's list.
+      const tenantWhere = getTenantScopeWhere(session);
 
       const tenants = await prisma.tenant.findMany({
         orderBy: { createdAt: 'desc' },
@@ -146,13 +133,37 @@ export async function POST(request: Request) {
     if (email) duplicateFilters.push({ email: { equals: email, mode: 'insensitive' } });
     if (phone && phone.length >= 7) duplicateFilters.push({ phone });
     const existingTenant = duplicateFilters.length > 0
-      ? await prisma.tenant.findFirst({ where: { OR: duplicateFilters } })
+      ? await prisma.tenant.findFirst({
+          where: { OR: duplicateFilters },
+          include: { unit: { select: { property: { select: { ownerId: true } } } } },
+        })
       : null;
-    if (existingTenant) {
+
+    // One record per person — but the right reaction depends on who owns the
+    // record that already exists:
+    //   OWN       → it's already this landlord's tenant (or another's unit)
+    //   CLAIMABLE → a profile the person created by registering themselves;
+    //               adopt it (set addedById) instead of creating a duplicate
+    //   FOREIGN   → another landlord already added them; refuse the add
+    const existingRelation = existingTenant
+      ? classifyExistingTenant(existingTenant, session)
+      : null;
+    const claimableTenant = existingRelation === 'CLAIMABLE' ? existingTenant : null;
+
+    if (existingTenant && existingRelation === 'OWN') {
       return NextResponse.json(
         {
           success: false,
           error: `${existingTenant.firstName} ${existingTenant.lastName} is already a tenant. Use "Assign Unit" in the tenant list instead.`,
+        },
+        { status: 400 }
+      );
+    }
+    if (existingTenant && existingRelation === 'FOREIGN') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `${existingTenant.firstName} ${existingTenant.lastName} has already been added by another landlord.`,
         },
         { status: 400 }
       );
@@ -225,22 +236,44 @@ export async function POST(request: Request) {
     const linkedUser = await findMatchingTenantUser(email, phone);
 
     const tenant = await prisma.$transaction(async (tx) => {
-      const created = await tx.tenant.create({
-        data: {
-          firstName: validated.firstName,
-          lastName: validated.lastName,
-          email,
-          phone,
-          idNumber: validated.idNumber || null,
-          isActive: true,
-          userId: linkedUser?.id ?? null,
-          unitId: unit?.id ?? null,
-        },
-        include: {
-          unit: { include: { property: { include: { owner: true } } } },
-          user: { select: { id: true, email: true } },
-        },
-      });
+      // Either create a brand-new record or claim the unowned profile the
+      // person created when they registered (addedById marks it as this
+      // landlord's tenant, which is what makes it visible in their list).
+      const created = claimableTenant
+        ? await tx.tenant.update({
+            where: { id: claimableTenant.id },
+            data: {
+              addedById: session.userId,
+              // Keep the account already linked to this profile; only fall
+              // back to a freshly matched login when the record has none.
+              userId: claimableTenant.userId ?? linkedUser?.id ?? null,
+              ...(unit ? { unitId: unit.id } : {}),
+              ...(validated.idNumber && !claimableTenant.idNumber
+                ? { idNumber: validated.idNumber }
+                : {}),
+            },
+            include: {
+              unit: { include: { property: { include: { owner: true } } } },
+              user: { select: { id: true, email: true } },
+            },
+          })
+        : await tx.tenant.create({
+            data: {
+              firstName: validated.firstName,
+              lastName: validated.lastName,
+              email,
+              phone,
+              idNumber: validated.idNumber || null,
+              isActive: true,
+              addedById: session.userId,
+              userId: linkedUser?.id ?? null,
+              unitId: unit?.id ?? null,
+            },
+            include: {
+              unit: { include: { property: { include: { owner: true } } } },
+              user: { select: { id: true, email: true } },
+            },
+          });
 
       // Allocating the room makes it occupied and lifts the property counters.
       if (unit) {
@@ -264,10 +297,14 @@ export async function POST(request: Request) {
         ? `Room ${unit.unitNumber} at ${unit.property?.name || 'the estate'}`
         : null;
 
-      if (linkedUser && roomText) {
+      // Notify the account this record ends up linked to — the freshly matched
+      // login for a new record, or the account already behind a claimed profile.
+      const tenantAccountId = tenant.userId ?? null;
+
+      if (tenantAccountId && roomText) {
         await prisma.notification.create({
           data: {
-            userId: linkedUser.id,
+            userId: tenantAccountId,
             type: 'ANNOUNCEMENT',
             title: 'You have been allocated a room',
             message: `${roomText} has been allocated to you. Open "My Room" to see it and pay your rent.${payLinesSuffix}`, 
@@ -275,7 +312,7 @@ export async function POST(request: Request) {
         });
         // Email the tenant about their room allocation.
         const tenantUser = await prisma.user.findUnique({
-          where: { id: linkedUser.id },
+          where: { id: tenantAccountId },
           select: { email: true, firstName: true, lastName: true },
         });
         if (tenantUser?.email) {

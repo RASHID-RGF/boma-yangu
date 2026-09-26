@@ -251,6 +251,29 @@ export async function POST(request: Request) {
     });
 
     const senderName = sender ? `${sender.firstName} ${sender.lastName}`.trim() : 'A Boma Yangu user';
+
+    // In-app notification: this is what raises the popup on the recipient's
+    // screen and lands the message in their Notifications list (the email
+    // below is the off-site copy). Best-effort — a notification failure must
+    // never fail an already-delivered message.
+    try {
+      await prisma.notification.create({
+        data: {
+          userId: receiver.id,
+          type: 'MESSAGE',
+          title: `New message from ${senderName}`,
+          message:
+            validated.content.length > 160
+              ? `${validated.subject} — ${validated.content.slice(0, 160).trimEnd()}…`
+              : `${validated.subject} — ${validated.content}`,
+          messageId: message.id,
+          sentViaEmail: true,
+        },
+      });
+    } catch (notifyError) {
+      console.error('Message notification error:', notifyError);
+    }
+
     await sendPortalNoticeEmail({
       to: receiver.email,
       recipientName: `${receiver.firstName} ${receiver.lastName}`.trim() || receiver.email,
@@ -291,12 +314,27 @@ export async function PATCH(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const { id } = markReadSchema.parse(body);
+    if (!id) {
+      // Without this guard an undefined id would drop the filter and mark
+      // every message the user ever received as read.
+      return NextResponse.json({ success: false, error: 'Message id is required' }, { status: 400 });
+    }
 
     // Only the recipient can mark a message as read.
     const result = await prisma.message.updateMany({
       where: { id, receiverId: session.userId },
       data: { isRead: true, readAt: new Date() },
     });
+
+    // Reading the message also clears the popup/badge raised for it.
+    try {
+      await prisma.notification.updateMany({
+        where: { userId: session.userId, messageId: id, isRead: false },
+        data: { isRead: true, readAt: new Date() },
+      });
+    } catch (notifyError) {
+      console.error('Message notification sync error:', notifyError);
+    }
 
     return NextResponse.json({ success: true, data: { updated: result.count } });
   } catch (error: any) {

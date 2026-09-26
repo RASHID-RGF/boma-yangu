@@ -15,7 +15,8 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // TENANT sees only their own invoices; management sees everything.
+    // TENANT sees only their own invoices; management sees the invoices of its
+    // own properties (super admin sees everything).
     const tenantRecord = session.role === 'TENANT' ? await ensureTenantRecord(session.userId) : null;
 
     // A tenant account without a linked Tenant record must never see estate-wide data.
@@ -30,7 +31,18 @@ export async function GET() {
     const invoices = await prisma.invoice.findMany({
       where: tenantRecord
         ? { tenantId: tenantRecord.id }
-        : {},
+        : session.role === 'SUPER_ADMIN'
+          ? {}
+          : {
+              // Landlord/management: invoices raised on their units, on a
+              // tenant occupying their units, or by themselves — never
+              // another landlord's billing.
+              OR: [
+                { unit: { property: { ownerId: session.userId } } },
+                { tenant: { unit: { property: { ownerId: session.userId } } } },
+                { createdById: session.userId },
+              ],
+            },
       orderBy: { dueDate: 'desc' },
       include: {
         tenant: { select: { firstName: true, lastName: true } },

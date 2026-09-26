@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
+import { canManageTenantRecord } from '@/lib/auth/tenant-visibility';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
@@ -41,7 +42,18 @@ export async function GET() {
     const documents = await prisma.document.findMany({
       where: tenantRecord
         ? { OR: [{ tenantId: tenantRecord.id }, { uploadedById: session.userId }] }
-        : {},
+        : session.role === 'SUPER_ADMIN'
+          ? {}
+          : {
+              // Management: documents on its own properties, on its own
+              // tenants, or uploaded by this user — never another landlord's
+              // paperwork.
+              OR: [
+                { property: { ownerId: session.userId } },
+                { tenant: { unit: { property: { ownerId: session.userId } } } },
+                { uploadedById: session.userId },
+              ],
+            },
       orderBy: { createdAt: 'desc' },
       include: {
         uploadedBy: { select: { firstName: true, lastName: true } },
@@ -99,9 +111,15 @@ export async function POST(request: Request) {
     } else if (validated.tenantId) {
       const tenant = await prisma.tenant.findUnique({
         where: { id: validated.tenantId },
-        include: { unit: true },
+        include: {
+          unit: { select: { propertyId: true, property: { select: { ownerId: true } } } },
+        },
       });
       if (!tenant) {
+        return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 404 });
+      }
+      // A landlord may only file documents against their own tenants.
+      if (!canManageTenantRecord(tenant, session)) {
         return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 404 });
       }
       tenantId = tenant.id;

@@ -16,6 +16,8 @@ const API_PUBLIC_ROUTES = [
   '/api/auth/register',
   '/api/auth/callback',
   '/api/auth/logout',
+  // Google sign-in start/callback — must be reachable without a session.
+  '/api/auth/google',
   '/api/payments/palpluss-callback',
 ];
 

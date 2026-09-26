@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { findMatchingTenantUser, normalizeEmail } from '@/lib/auth/tenant-scope';
+import { canManageTenantRecord } from '@/lib/auth/tenant-visibility';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { z } from 'zod';
@@ -49,6 +50,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       },
     });
     if (!tenant) {
+      return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 404 });
+    }
+    // Ownership check: a landlord may only touch tenants on their own
+    // properties or tenants they added themselves — never another landlord's
+    // record (404 so tenant ids can't be probed either).
+    if (!canManageTenantRecord(tenant, session)) {
       return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 404 });
     }
 

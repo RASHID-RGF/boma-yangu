@@ -34,9 +34,22 @@ export async function GET() {
     }
 
     if (isManagementRole(session.role)) {
-      // Management: see all leases with tenant + unit context.
+      // Management: leases on its own units (or created by this user).
+      // Super admin sees every lease.
+      const leaseWhere =
+        session.role === 'SUPER_ADMIN'
+          ? {}
+          : {
+              OR: [
+                { unit: { property: { ownerId: session.userId } } },
+                { tenant: { unit: { property: { ownerId: session.userId } } } },
+                { createdById: session.userId },
+              ],
+            };
+
       const leases = await prisma.lease.findMany({
         orderBy: { createdAt: 'desc' },
+        where: leaseWhere,
         include: {
           tenant: {
             select: {

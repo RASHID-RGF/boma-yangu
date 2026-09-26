@@ -195,7 +195,10 @@ export function SendMessageModal({
           label="Or enter recipient email"
           placeholder="someone@example.com"
           value={receiverEmail}
-          onChange={(e) => setReceiverId('') || setReceiverEmail(e.target.value)}
+          onChange={(e) => {
+            setReceiverId('');
+            setReceiverEmail(e.target.value);
+          }}
         />
         <Input
           name="subject"

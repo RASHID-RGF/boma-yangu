@@ -1,11 +1,12 @@
 'use client';
 
 import { useAuth } from '@/hooks/useAuth';
-import { Bell, Search, Menu } from 'lucide-react';
+import { Search, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { getInitials } from '@/lib/utils/format';
 import { useSettings } from '@/lib/settings/context';
+import { NotificationBell } from './notification-bell';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -44,11 +45,8 @@ export function Header({ onMenuToggle }: HeaderProps) {
 
       {/* Right */}
       <div className="flex items-center gap-2">
-        {/* Notifications */}
-        <button className="relative p-2 rounded-lg text-[#646669] hover:text-[#d4d4d4] hover:bg-[#e2b714]/5 transition-all duration-200">
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full ring-2 ring-[#0f0f1a]" />
-        </button>
+        {/* Notifications — live popup + unread badge */}
+        <NotificationBell />
 
         {/* Profile */}
         <div className="relative ml-1">

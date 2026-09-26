@@ -377,6 +377,9 @@ async function main() {
       moveInDate: daysAgo(700),
       moveOutDate: daysAgo(60),
       isActive: false,
+      // addedById ties a unit-less record to the landlord who added it; without
+      // it the record would be invisible to every landlord.
+      addedById: landlord.id,
     },
   });
 

@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { findMatchingTenantUser, normalizeEmail, normalizePhone } from '@/lib/auth/tenant-scope';
+import { canClaimTenantRecord } from '@/lib/auth/tenant-visibility';
 import { deriveNameFromEmail } from '@/lib/utils/contact';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
@@ -96,8 +97,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
     let createdNew = false;
 
     if (validated.tenantId) {
-      tenant = await prisma.tenant.findUnique({ where: { id: validated.tenantId } });
+      tenant = await prisma.tenant.findUnique({
+        where: { id: validated.tenantId },
+        include: { unit: { select: { property: { select: { ownerId: true } } } } },
+      });
       if (!tenant) {
+        return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 404 });
+      }
+      // Only the landlord who owns the unit or added the tenant may assign to
+      // them — never a record belonging to another landlord. An unowned
+      // profile (the person registered themselves) is claimed instead.
+      if (!canClaimTenantRecord(tenant, session)) {
         return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 404 });
       }
       if (tenant.unitId) {
@@ -120,12 +130,23 @@ export async function POST(request: Request, { params }: { params: { id: string 
       const filters: Prisma.TenantWhereInput[] = [];
       if (email) filters.push({ email: { equals: email, mode: 'insensitive' } });
       if (phone) filters.push({ phone });
-      const existing = await prisma.tenant.findFirst({ where: { OR: filters } });
+      const existing = await prisma.tenant.findFirst({
+        where: { OR: filters },
+        include: { unit: { select: { property: { select: { ownerId: true } } } } },
+      });
 
       if (existing) {
         if (existing.unitId) {
           return NextResponse.json(
             { success: false, error: `${existing.firstName} ${existing.lastName} already has a room. Use "Change Unit" to move them.` },
+            { status: 400 }
+          );
+        }
+        // Someone else's pending tenant can never be stolen here; an unowned
+        // profile (the person registered themselves) is adopted below.
+        if (!canClaimTenantRecord(existing, session)) {
+          return NextResponse.json(
+            { success: false, error: `${existing.firstName} ${existing.lastName} has already been added by another landlord.` },
             { status: 400 }
           );
         }
@@ -143,6 +164,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
             email,
             phone: phone || '',
             isActive: true,
+            addedById: session.userId,
           },
         });
       }
@@ -198,7 +220,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const assigned = await prisma.$transaction(async (tx) => {
       const updated = await tx.tenant.update({
         where: { id: tenant!.id },
-        data: { userId, unitId: unit.id },
+        // addedById claims an unowned profile for this landlord so the tenant
+        // stays visible in their list (and nowhere else).
+        data: { userId, unitId: unit.id, addedById: tenant!.addedById ?? session.userId },
         include: {
           unit: { include: { property: { include: { owner: true } } } },
           user: { select: { id: true, email: true } },

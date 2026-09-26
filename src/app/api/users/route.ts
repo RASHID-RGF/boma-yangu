@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
+import { getTenantScopeWhere } from '@/lib/auth/tenant-visibility';
+import type { Prisma } from '@prisma/client';
 import { hashPassword } from '@/lib/auth/password';
 import { logActivity, logAudit, extractIpAddress, extractUserAgent } from '@/lib/db/activity-logger';
 import { z } from 'zod';
@@ -43,7 +45,23 @@ export async function GET(request: Request) {
     const q = searchParams.get('q')?.toLowerCase() || '';
     const role = searchParams.get('role') || '';
 
+    // Super admin: every account. A landlord: their own account plus the
+    // login accounts of the tenants they own or added — the same visibility
+    // rule as the tenant list, so other people's users are never exposed.
+    let userWhere: Prisma.UserWhereInput = {};
+    if (session.role === 'LANDLORD') {
+      const tenantRows = await prisma.tenant.findMany({
+        where: getTenantScopeWhere(session),
+        select: { userId: true },
+      });
+      const linkedIds = tenantRows
+        .map((t) => t.userId)
+        .filter((id): id is string => !!id);
+      userWhere = { id: { in: [session.userId, ...linkedIds] } };
+    }
+
     const users = await prisma.user.findMany({
+      where: userWhere,
       select: USER_SELECT,
       orderBy: { createdAt: 'desc' },
     });

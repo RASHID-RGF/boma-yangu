@@ -25,6 +25,7 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   LEASE_EXPIRY: <FileText className="w-4 h-4" />,
   INVOICE_GENERATED: <FileText className="w-4 h-4" />,
   ANNOUNCEMENT: <Info className="w-4 h-4" />,
+  MESSAGE: <MessageSquare className="w-4 h-4" />,
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -34,6 +35,7 @@ const TYPE_COLORS: Record<string, string> = {
   LEASE_EXPIRY: 'bg-purple-50 text-purple-600',
   INVOICE_GENERATED: 'bg-blue-50 text-blue-600',
   ANNOUNCEMENT: 'bg-gray-100 text-gray-600',
+  MESSAGE: 'bg-[#e2b714]/10 text-[#b8960f]',
 };
 
 export default function NotificationsPage() {

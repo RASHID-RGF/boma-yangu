@@ -69,6 +69,19 @@ export default function MessagesPage() {
   const [form, setForm] = useState({ receiverId: '', receiverEmail: '', subject: '', content: '' });
   const [contactFilter, setContactFilter] = useState<'ALL' | 'LANDLORD' | 'TENANT'>('ALL');
 
+  // Derived lists — declared before the effects below, whose dependency
+  // arrays run during render (a `const` used in a deps array before its
+  // declaration throws "Cannot access 'filteredContacts' before initialization"
+  // and crashes the page).
+  const filteredContacts = contacts.filter((c) =>
+    contactFilter === 'ALL' ? true : contactFilter === 'LANDLORD' ? c.role === 'LANDLORD' || c.role === 'SUPER_ADMIN' : c.role === 'TENANT'
+  );
+
+  const contactOptions = filteredContacts.map((c) => ({
+    value: c.id,
+    label: `${c.firstName} ${c.lastName} (${c.role.replace(/_/g, ' ')})`,
+  }));
+
   const fetchMessages = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -127,15 +140,6 @@ export default function MessagesPage() {
       setSubmitting(false);
     }
   };
-
-  const filteredContacts = contacts.filter((c) =>
-    contactFilter === 'ALL' ? true : contactFilter === 'LANDLORD' ? c.role === 'LANDLORD' || c.role === 'SUPER_ADMIN' : c.role === 'TENANT'
-  );
-
-  const contactOptions = filteredContacts.map((c) => ({
-    value: c.id,
-    label: `${c.firstName} ${c.lastName} (${c.role.replace(/_/g, ' ')})`,
-  }));
 
   const unreadCount = messages.filter((m) => !m.isRead && m.receiver?.id === user?.id).length;
 
