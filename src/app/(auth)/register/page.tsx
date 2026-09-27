@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { Mail, Lock, Phone, User, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Phone, User, Eye, EyeOff, LogIn } from 'lucide-react';
 import { UserRole } from '@/types';
 import toast from 'react-hot-toast';
 
@@ -32,6 +32,9 @@ function RegisterForm() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Set when the email already belongs to an account — offers a one-click
+  // sign-in with that email instead of a dead-end error.
+  const [existingAccount, setExistingAccount] = useState<string | null>(null);
 
   if (user) {
     typeof window !== 'undefined' && (window.location.href = '/dashboard');
@@ -68,7 +71,13 @@ function RegisterForm() {
       }
       window.location.href = '/dashboard';
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Registration failed');
+      const message = err instanceof Error ? err.message : 'Registration failed';
+      if (/already registered/i.test(message)) {
+        setExistingAccount(form.email);
+        toast.error('This email already has an account — sign in instead');
+      } else {
+        toast.error(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -107,14 +116,13 @@ function RegisterForm() {
           />
 
         <Input
-          label="Phone Number"
+          label="Phone Number (optional)"
           name="phone"
           type="tel"
           placeholder="0712 345 678"
           value={form.phone}
           onChange={(e) => handleChange('phone', e.target.value)}
           icon={<Phone className="w-4 h-4" />}
-          required
         />
 
         <Select
@@ -162,9 +170,30 @@ function RegisterForm() {
         </Button>
       </form>
 
+      {existingAccount && (
+        <div className="rounded-xl border border-[#e2b714]/30 bg-[#e2b714]/5 p-4 text-center animate-fade-in">
+          <p className="text-sm text-[#d4d4d4]">
+            <span className="font-semibold break-all">{existingAccount}</span> already has an
+            account.
+          </p>
+          <p className="text-xs text-[#646669] mt-1">
+            Sign in with that email — no phone number needed.
+          </p>
+          <Link
+            href={`/login?email=${encodeURIComponent(existingAccount)}`}
+            className="btn-gold rounded-lg px-5 py-2 text-sm inline-flex items-center gap-2 mt-3"
+          >
+            <LogIn className="w-4 h-4" /> Sign in with email
+          </Link>
+        </div>
+      )}
+
       <p className="text-center text-sm text-gray-500">
         Already have an account?{' '}
-        <Link href="/login" className="text-[#e2b714] hover:text-[#f5d742] font-medium">
+        <Link
+          href={form.email ? `/login?email=${encodeURIComponent(form.email)}` : '/login'}
+          className="text-[#e2b714] hover:text-[#f5d742] font-medium"
+        >
           Sign in
         </Link>
       </p>

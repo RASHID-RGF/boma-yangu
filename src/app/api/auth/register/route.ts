@@ -29,6 +29,8 @@ export async function POST(request: Request) {
     const user = await prisma.user.create({
       data: {
         email: validated.email,
+        // Optional at sign-up — stored so the person can also sign in by phone.
+        phone: validated.phone || null,
         firstName: validated.firstName,
         lastName: validated.lastName,
         passwordHash,

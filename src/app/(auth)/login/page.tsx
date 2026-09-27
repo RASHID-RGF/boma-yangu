@@ -16,6 +16,9 @@ function LoginForm() {
   const params = useSearchParams();
   const redirectParam = params.get('redirect');
   const redirectTo = redirectParam?.toString() || '/dashboard';
+  // Prefilled when someone arrives from "you already have an account" on the
+  // sign-up form — they sign in with their email, no phone number needed.
+  const emailParam = params.get('email');
 
   const [contact, setContact] = useState('');
   const [password, setPassword] = useState('');
@@ -28,6 +31,10 @@ function LoginForm() {
       toast.error(error);
     }
   }, [params]);
+
+  useEffect(() => {
+    if (emailParam) setContact(emailParam);
+  }, [emailParam]);
 
   if (user) {
     typeof window !== 'undefined' && (window.location.href = redirectTo);
@@ -85,6 +92,9 @@ function LoginForm() {
           icon={contact.includes('@') ? <Mail className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
           required
         />
+        <p className="-mt-3 text-xs text-gray-400">
+          Sign in with the email you registered with — phone number works too.
+        </p>
 
         <div className="relative">
           <Input

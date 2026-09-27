@@ -54,10 +54,12 @@ const NAV_ITEMS: NavItem[] = [
 
 interface SidebarProps {
   isCollapsed: boolean;
+  /** Phone/tablet drawer state — true when the header menu button opened it. */
+  mobileOpen?: boolean;
   onToggle: () => void;
 }
 
-export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
+export function Sidebar({ isCollapsed, mobileOpen = false, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
   const { setIsOpen } = useSettings();
@@ -79,8 +81,12 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 z-40 h-screen bg-[#0f0f1a] border-r border-[#e2b714]/[0.06] text-[#d4d4d4] transition-all duration-300 ease-in-out flex flex-col',
-        isCollapsed ? 'w-20' : 'w-64'
+        'fixed left-0 top-0 z-40 h-screen w-64 bg-[#0f0f1a] border-r border-[#e2b714]/[0.06] text-[#d4d4d4] transition-all duration-300 ease-in-out flex flex-col',
+        // Phones/tablets: off-canvas drawer that slides in from the header menu.
+        'max-lg:-translate-x-full max-lg:shadow-2xl',
+        mobileOpen && 'max-lg:translate-x-0',
+        // Desktop: pinned rail, collapsible.
+        isCollapsed && 'lg:w-20'
       )}
     >
       {/* Logo */}

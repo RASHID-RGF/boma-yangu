@@ -20,6 +20,11 @@ import {
 import React, { useEffect, useState } from 'react';
 // SettingsProvider is provided globally in Providers
 import { SettingsToggleButton, SettingsPanel } from '@/components/settings/settings-panel';
+import { HeroBackdrop, HeroBrightnessControl } from '@/components/home/hero';
+import { Reveal } from '@/components/home/reveal';
+import { FeatureShowcase } from '@/components/home/feature-showcase';
+import { Testimonials } from '@/components/home/testimonials';
+import { BlogSection } from '@/components/home/blog';
 
 function FloatingParticles() {
   const [particles, setParticles] = useState<
@@ -96,39 +101,74 @@ function FeatureCard({
   description,
   delay,
   image,
+  tags,
+  index = 0,
 }: {
   icon: React.ElementType;
   title: string;
   description: string;
   delay: number;
   image?: string;
+  tags?: string[];
+  index?: number;
 }) {
   return (
-    <div
-      className="card-monkey rounded-2xl p-6 md:p-8 group"
+    <article
+      className="group relative h-full overflow-hidden rounded-2xl border border-[#e2b714]/10 bg-[#1a1a2e]/40 transition-all duration-300 hover:-translate-y-1.5 hover:border-[#e2b714]/35 hover:shadow-[0_18px_50px_-20px_rgba(226,183,20,0.45)]"
       style={{ animationDelay: `${delay}s` }}
     >
-      <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-5 group-hover:scale-110 transition-all duration-300 overflow-hidden">
+      {/* Gold glow that blooms on hover */}
+      <div className="pointer-events-none absolute -top-16 -right-16 h-40 w-40 rounded-full bg-[#e2b714]/15 blur-3xl opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+
+      {/* Screenshot banner — same treatment as the showcase rows below */}
+      <div className="relative h-36 md:h-40 overflow-hidden bg-gradient-to-br from-[#12121d] to-[#1a1a2e]">
         {image ? (
           <img
             src={image}
             alt={title}
-            className="w-full h-full object-contain"
+            loading="lazy"
+            className="h-full w-full object-cover object-top opacity-90 transition-transform duration-700 group-hover:scale-105 group-hover:opacity-100"
           />
         ) : (
-          <Icon className="w-6 h-6 text-[#e2b714]" />
+          <div className="flex h-full w-full items-center justify-center">
+            <Icon className="w-10 h-10 text-[#e2b714]" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#12121d] via-[#12121d]/25 to-transparent" />
+        <span className="absolute left-4 top-4 font-mono text-[11px] font-semibold tracking-[0.2em] text-[#e2b714]">
+          {String(index + 1).padStart(2, '0')}
+        </span>
+        <span className="absolute bottom-4 left-4 flex h-9 w-9 items-center justify-center rounded-xl border border-[#e2b714]/30 bg-[#0f0f1a]/80 backdrop-blur transition-all duration-300 group-hover:bg-[#e2b714]">
+          <Icon className="w-4 h-4 text-[#e2b714] transition-colors duration-300 group-hover:text-[#0f0f1a]" />
+        </span>
+      </div>
+
+      <div className="relative p-6">
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="text-lg font-semibold text-[#d4d4d4] transition-colors duration-300 group-hover:text-[#e2b714]">
+            {title}
+          </h3>
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#e2b714]/20 text-[#e2b714]/60 transition-all duration-300 group-hover:border-[#e2b714] group-hover:bg-[#e2b714] group-hover:text-[#0f0f1a]">
+            <ChevronRight className="w-4 h-4" />
+          </span>
+        </div>
+
+        <p className="mt-3 text-sm leading-relaxed text-[#646669]">{description}</p>
+
+        {tags && tags.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full border border-[#e2b714]/15 bg-[#e2b714]/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-[#e2b714]/80 transition-colors duration-300 group-hover:border-[#e2b714]/35 group-hover:text-[#e2b714]"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
         )}
       </div>
-      <h3 className="text-lg font-semibold text-[#d4d4d4] mb-3 group-hover:text-[#e2b714] transition-colors duration-300">
-        {title}
-      </h3>
-      <p className="text-[#646669] leading-relaxed text-sm">
-        {description}
-      </p>
-      <div className="mt-4 flex items-center gap-1 text-[#e2b714]/0 group-hover:text-[#e2b714]/60 text-xs font-medium transition-all duration-300">
-        Learn more <ChevronRight className="w-3 h-3" />
-      </div>
-    </div>
+    </article>
   );
 }
 
@@ -151,25 +191,44 @@ export default function LandingPage() {
     cta: false,
   });
 
+  // The hero fades in on load; every section below reveals as it scrolls
+  // into view instead of all at once after fixed timers.
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsVisible((prev) => ({ ...prev, hero: true }));
     }, 100);
-    const featureTimer = setTimeout(() => {
-      setIsVisible((prev) => ({ ...prev, features: true }));
-    }, 300);
-    const statsTimer = setTimeout(() => {
-      setIsVisible((prev) => ({ ...prev, stats: true }));
-    }, 500);
-    const ctaTimer = setTimeout(() => {
-      setIsVisible((prev) => ({ ...prev, cta: true }));
-    }, 700);
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsVisible({ hero: true, features: true, stats: true, cta: true });
+      return () => clearTimeout(timer);
+    }
+
+    const reveal = (id: string) => {
+      if (id === 'features') setIsVisible((prev) => ({ ...prev, features: true }));
+      else if (id === 'stats') setIsVisible((prev) => ({ ...prev, stats: true }));
+      else if (id === 'cta') setIsVisible((prev) => ({ ...prev, cta: true }));
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            reveal(entry.target.id);
+            observer.unobserve(entry.target);
+          }
+        }
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -5% 0px' }
+    );
+
+    for (const id of ['features', 'stats', 'cta']) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    }
 
     return () => {
       clearTimeout(timer);
-      clearTimeout(featureTimer);
-      clearTimeout(statsTimer);
-      clearTimeout(ctaTimer);
+      observer.disconnect();
     };
   }, []);
 
@@ -179,36 +238,42 @@ export default function LandingPage() {
       title: 'M-Pesa Integration',
       description: 'Collect rent seamlessly via M-Pesa STK Push, Paybill, and Till Number with automatic receipt generation and real-time confirmation.',
       image: '/M-Pesa Logo.jpeg',
+      tags: ['STK Push', 'Paybill', 'Till'],
     },
     {
       icon: Building2,
       title: 'Property Portfolio',
       description: 'Manage multiple properties and units with ease. Track occupancy rates, lease expirations, and property performance in real-time.',
       image: '/property portfolio.jpeg',
+      tags: ['Units', 'Leases', 'Occupancy'],
     },
     {
       icon: Users,
       title: 'Tenant Hub',
       description: 'Centralized tenant profiles with lease agreements, payment history, documents, and communication logs all in one place.',
       image: '/TENANT hub.jpeg',
+      tags: ['Profiles', 'Documents', 'History'],
     },
     {
       icon: Shield,
       title: 'Maintenance Tracker',
       description: 'Tenants can report issues with photos. Track repair progress, assign vendors, and keep everyone updated automatically.',
       image: '/maintenace tracker.jpeg',
+      tags: ['Photo intake', 'Assignees', 'Live status'],
     },
     {
       icon: BarChart3,
       title: 'Analytics Dashboard',
       description: 'Beautiful, real-time dashboard with income reports, occupancy trends, vacancy tracking, and actionable financial insights.',
       image: '/analytics dashboard.jpeg',
+      tags: ['Income', 'Occupancy', 'Exports'],
     },
     {
       icon: Sparkles,
       title: 'Smart Automation',
       description: 'Auto-generate invoices, send rent reminders via SMS/email, and automate late fee calculations based on your rules.',
       image: '/smart automation .jpeg',
+      tags: ['Invoices', 'Reminders', 'Late fees'],
     },
   ];
 
@@ -249,7 +314,7 @@ export default function LandingPage() {
               </span>
             </Link>
             <div className="flex items-center gap-3">
-              <Link href="/login">
+              <Link href="/login" className="hidden sm:block">
                 <Button
                   variant="ghost"
                   className="btn-ghost hover:text-[#d4d4d4] hover:bg-white/[0.06] transition-all duration-200"
@@ -267,9 +332,7 @@ export default function LandingPage() {
 
       {/* Hero Section */}
       <section className="relative pt-32 md:pt-40 pb-20 md:pb-32 px-4">
-            {/* Hero background image (non-covering) */}
-            <div className="hero-bg absolute inset-x-0 top-0 h-[420px] md:h-[520px] pointer-events-none z-0" />
-            <div className="hero-overlay absolute inset-x-0 top-0 h-[420px] md:h-[520px] pointer-events-none z-5" />
+            <HeroBackdrop />
             <div
               className={`max-w-5xl mx-auto text-center transition-all duration-1000 relative z-10 hero-content ${
                 isVisible.hero ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
@@ -311,7 +374,7 @@ export default function LandingPage() {
           </div>
 
           {/* Floating stats hint */}
-          <div className="mt-16 flex items-center justify-center gap-8 md:gap-12 animate-fade-in">
+          <div className="mt-16 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 md:gap-x-12 animate-fade-in">
             {[
               { icon: CheckCircle, text: 'No Credit Card Required' },
               { icon: Zap, text: 'Free 14-Day Trial' },
@@ -323,11 +386,15 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
+
+          {/* Let visitors brighten or dim the hero photo themselves */}
+          <HeroBrightnessControl />
         </div>
       </section>
 
       {/* Stats Section */}
       <section
+        id="stats"
         className={`py-16 md:py-20 px-4 transition-all duration-1000 ${
           isVisible.stats ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
         }`}
@@ -367,14 +434,26 @@ export default function LandingPage() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
             {features.map((feature, i) => (
-              <FeatureCard key={i} {...feature} delay={i * 0.1} />
+              <Reveal key={i} delay={i * 80} className="h-full">
+                <FeatureCard {...feature} delay={i * 0.1} index={i} />
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
+      {/* Deeper feature tour with screenshots */}
+      <FeatureShowcase />
+
+      {/* Social proof */}
+      <Testimonials />
+
+      {/* Blog */}
+      <BlogSection />
+
       {/* CTA Section */}
       <section
+        id="cta"
         className={`py-16 md:py-24 px-4 transition-all duration-1000 ${
           isVisible.cta ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
         }`}

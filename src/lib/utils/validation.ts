@@ -13,7 +13,14 @@ export const registerSchema = z.object({
   firstName: z.string().min(2, 'First name must be at least 2 characters'),
   lastName: z.string().min(2, 'Last name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
-  phone: z.string().min(10, 'Phone number must be at least 10 digits'),
+  // Optional: an email-only account must be able to sign up and sign in.
+  phone: z
+    .string()
+    .trim()
+    .optional()
+    .refine((value) => !value || value.length >= 10, {
+      message: 'Phone number must be at least 10 digits',
+    }),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   confirmPassword: z.string(),
   role: z.enum(['LANDLORD', 'TENANT']),
