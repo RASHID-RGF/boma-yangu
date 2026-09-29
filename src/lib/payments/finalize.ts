@@ -1,10 +1,20 @@
 import prisma from '@/lib/db/prisma';
 import { generateReceiptNumber } from '@/lib/utils/format';
 import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
+import { isDarajaConfigured } from '@/lib/payments/daraja';
 
-/** True when real PalPluss credentials are configured (otherwise we simulate). */
+/** True when PalPluss credentials are configured (hosted pay-link only). */
 export function isPalplussConfigured(): boolean {
   return !!process.env.PALPLUSS_API_KEY;
+}
+
+/**
+ * True when the STK provider is configured. Daraja is the platform's payment
+ * provider. When this is false the payment API refuses the request outright —
+ * it never fabricates a completed transaction.
+ */
+export function isStkProviderConfigured(): boolean {
+  return isDarajaConfigured();
 }
 
 /** Generates a realistic-looking transaction code for simulation mode. */
@@ -60,7 +70,7 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
   const receiptNumber = generateReceiptNumber();
   const now = new Date();
 
-  const transactionMessage = `PalPluss (M-Pesa) payment of KES ${amount.toLocaleString()} received ${
+  const transactionMessage = `M-Pesa payment of KES ${amount.toLocaleString()} received ${
     invoice ? `for invoice ${invoice.invoiceNumber}` : ''
   }. Receipt ${receiptNumber}. Transaction code ${options.transactionCode}.`;
 

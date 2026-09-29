@@ -3,15 +3,16 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
-import { finalizePayment } from '@/lib/payments/finalize';
+import { finalizePayment, isPalplussConfigured } from '@/lib/payments/finalize';
 import { queryStatus as palplussQueryStatus } from '@/lib/payments/palpluss';
+import { queryStatus as darajaQueryStatus, isDarajaConfigured } from '@/lib/payments/daraja';
 
 /**
  * GET /api/payments/[id]/status?wait=55000
  *
  * Long-poll endpoint for the "waiting for M-Pesa PIN" flow. After an STK push,
  * the tenant's screen holds a live waiting state while the tenant enters their
- * PIN on their phone. The provider callback (PalPluss webhook)
+ * PIN on their phone. The provider callback (Daraja webhook)
  * finalizes the payment asynchronously — this route polls the payment record
  * server-side and only responds once the payment leaves PENDING (COMPLETED /
  * FAILED / CANCELLED) or the wait window (max 1 minute) elapses, so the client
@@ -20,11 +21,11 @@ import { queryStatus as palplussQueryStatus } from '@/lib/payments/palpluss';
  * The client chains requests until its own 60s deadline; if the hosting
  * platform cuts the request early the client simply retries.
  *
- * Webhook fallback: the PalPluss webhook can fail to reach the server (local
- * dev without a public URL, transient network errors). While waiting, this
- * route therefore also asks PalPluss directly for the STK outcome every ~9s
- * and finalizes the payment from the provider's answer — so the payment flow
- * always completes, with or without callback delivery.
+ * Webhook fallback: the callback can fail to reach the server (DNS blip,
+ * transient network errors, a redeploy mid-payment). While waiting, this route
+ * therefore also asks Daraja directly for the STK outcome every ~9s and
+ * finalizes the payment from its answer — so the payment flow always completes,
+ * with or without callback delivery.
  */
 export const dynamic = 'force-dynamic';
 
@@ -47,35 +48,101 @@ const STATUS_SELECT = {
 } as const;
 
 /**
- * Webhook fallback: ask PalPluss directly for the STK outcome and finalize the
- * payment from the provider's answer. Only terminal statuses are acted on —
- * PENDING/PROCESSING responses simply keep the wait going.
+ * Normalised provider answer so the finalisation logic stays provider-agnostic.
+ *
+ * `storeAsCheckoutId` is set only by providers whose stored value must be
+ * rewritten (PalPluss reports its own transaction id). Daraja already stores
+ * the CheckoutRequestID that both its callback and its query key on, so it is
+ * deliberately left untouched.
+ */
+interface NormalizedStatus {
+  status: 'QUEUED' | 'SUCCESS' | 'FAILED';
+  /** Provider transaction id — the transaction code when no receipt is known. */
+  id: string;
+  storeAsCheckoutId?: string;
+  amount?: number;
+  phone?: string;
+  receipt?: string;
+  resultDesc?: string;
+}
+
+/**
+ * Asks the owning provider directly for the STK outcome. In-progress answers
+ * (QUEUED / network blips) return null — the webhook (or a later poll) still
+ * finalizes the payment, so a failed query is never terminal.
+ */
+async function queryProviderStatus(checkoutRequestId: string): Promise<NormalizedStatus | null> {
+  // Daraja owns every STK push. PalPluss is only queried when Daraja is not
+  // configured, so payments still settle if this environment falls back.
+  if (isDarajaConfigured()) {
+    try {
+      const tx = await darajaQueryStatus(checkoutRequestId);
+      if (!tx) return null;
+      if (tx.status === 'QUEUED') return { status: 'QUEUED', id: checkoutRequestId };
+      return {
+        status: tx.status,
+        // The STK query carries no amount or phone — leaving them undefined
+        // makes finalizePayment keep the recorded figures, which is correct.
+        id: tx.receipt || checkoutRequestId,
+        receipt: tx.receipt,
+        resultDesc: tx.resultDesc,
+      };
+    } catch (error) {
+      console.warn(
+        '[Payment Status] Daraja query failed (will retry):',
+        error instanceof Error ? error.message : error
+      );
+      return null;
+    }
+  }
+
+  if (!isPalplussConfigured()) return null;
+  try {
+    const tx = await palplussQueryStatus(checkoutRequestId);
+    if (!tx) return null;
+    return {
+      status: FAILED_STATUSES.has(tx.status)
+        ? 'FAILED'
+        : tx.status === 'SUCCESS'
+          ? 'SUCCESS'
+          : 'QUEUED',
+      id: tx.transaction_id,
+      storeAsCheckoutId: tx.transaction_id,
+      amount: tx.amount,
+      phone: tx.phone_number,
+      resultDesc: tx.result_desc ?? undefined,
+    };
+  } catch (error) {
+    console.warn(
+      '[Payment Status] PalPluss query failed (will retry):',
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
+}
+
+/**
+ * Webhook fallback: ask the provider directly for the STK outcome and finalize
+ * the payment from its answer. Only terminal statuses are acted on — a QUEUED
+ * response simply keeps the wait going.
  */
 async function syncFromProvider(paymentId: string, checkoutRequestId: string) {
-  let tx;
-  try {
-    tx = await palplussQueryStatus(checkoutRequestId);
-  } catch (error) {
-    // In-progress or transient query errors — keep waiting; the webhook (or a
-    // later poll) still finalizes the payment.
-    console.warn('[Payment Status] PalPluss query failed (will retry):', error instanceof Error ? error.message : error);
-    return;
-  }
+  const tx = await queryProviderStatus(checkoutRequestId);
   if (!tx) return;
 
   if (tx.status === 'SUCCESS') {
     // The webhook normally lands first with the real M-Pesa receipt; this is
-    // the fallback, so the PalPluss transaction id is a safe code.
+    // the fallback, so the provider transaction id is a safe code.
     await finalizePayment(paymentId, {
-      transactionCode: tx.transaction_id,
-      checkoutRequestId: tx.transaction_id,
-      phoneNumber: tx.phone_number,
+      transactionCode: tx.receipt || tx.id,
+      checkoutRequestId: tx.storeAsCheckoutId,
+      phoneNumber: tx.phone,
       amount: tx.amount,
     });
     return;
   }
 
-  if (FAILED_STATUSES.has(tx.status)) {
+  if (tx.status === 'FAILED') {
     // Atomically mark FAILED so a racing webhook can't double-handle it.
     const failed = await prisma.payment.updateMany({
       where: { id: paymentId, status: 'PENDING' },
@@ -93,7 +160,7 @@ async function syncFromProvider(paymentId: string, checkoutRequestId: string) {
             userId: fresh.tenant.userId,
             type: 'PAYMENT_RECEIVED',
             title: 'Payment failed',
-            message: `Your M-Pesa payment of KES ${fresh.amount.toLocaleString()} could not be completed. ${tx.result_desc || 'Please try again.'}`,
+            message: `Your M-Pesa payment of KES ${fresh.amount.toLocaleString()} could not be completed. ${tx.resultDesc || 'Please try again.'}`,
           },
         });
       }

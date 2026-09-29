@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Sign out failed');
       }
       setUser(null);
-      router.push('/login');
+      router.push('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign out failed');
       throw err;

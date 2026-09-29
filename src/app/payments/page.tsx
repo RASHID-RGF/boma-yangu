@@ -722,7 +722,7 @@ export default function PaymentsPage() {
             The M-Pesa STK push prompt will be sent to <strong>exactly this number</strong> — enter your PIN on your phone to complete the payment.
             {PAY_LINK_URL
               ? ' Prefer to pay manually? "Pay via Link" opens the landlord\'s secure PalPluss checkout with the amount prefilled — any M-Pesa number can pay there; just use the same number you entered above so your payment is matched automatically.'
-              : ' In demo mode (no PalPluss API key) the payment is recorded instantly with a simulated transaction code.'}
+              : ' If the prompt does not appear within a few seconds, check the number above and try again.'}
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setPayOpen(false)}>

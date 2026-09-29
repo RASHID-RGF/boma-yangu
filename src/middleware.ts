@@ -18,7 +18,10 @@ const API_PUBLIC_ROUTES = [
   '/api/auth/logout',
   // Google sign-in start/callback — must be reachable without a session.
   '/api/auth/google',
+  // Provider webhooks — posted to by Daraja/Payhero/PalPluss servers with no session.
   '/api/payments/palpluss-callback',
+  '/api/payments/payhero-callback',
+  '/api/payments/daraja-callback',
 ];
 
 const AUTH_ONLY_UNAUTHENTICATED = [
