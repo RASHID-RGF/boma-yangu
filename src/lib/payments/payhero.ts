@@ -178,13 +178,24 @@ async function request(path: string, init?: RequestInit): Promise<any> {
   }
 
   if (!res.ok) {
-    const message =
+    const base =
       (typeof body?.message === 'string' && body.message) ||
+      (typeof body?.error_message === 'string' && body.error_message) ||
       (typeof body?.error === 'string' && body.error) ||
       (typeof body?.detail === 'string' && body.detail) ||
       (Array.isArray(body?.errors) && body.errors.map((e: any) => e?.message || e).join(', ')) ||
       text.slice(0, 300) ||
       `Payhero request failed with status ${res.status}`;
+    // Payhero's refusals are `{error_code, error_message}` shaped — without
+    // reading those the tenant would see raw JSON in the payment toast. The
+    // code is appended so it stays greppable, and account-level refusals get a
+    // pointer to where they are actually fixed.
+    const code = typeof body?.error_code === 'string' ? body.error_code : '';
+    const message =
+      `${base}${code ? ` (${code})` : ''}` +
+      (code === 'PERMISSION_DENIED'
+        ? '. Check your merchant account status in the PayHero dashboard (app.payhero.co.ke).'
+        : '');
     throw new PayheroApiError(message, res.status, body);
   }
 

@@ -6,26 +6,28 @@ import { isManagementRole } from '@/lib/auth/rbac';
 import { finalizePayment, isPalplussConfigured } from '@/lib/payments/finalize';
 import { queryStatus as palplussQueryStatus } from '@/lib/payments/palpluss';
 import { queryStatus as darajaQueryStatus, isDarajaConfigured } from '@/lib/payments/daraja';
+import { queryStatus as payheroQueryStatus, unpackPayheroIds, isPayheroConfigured } from '@/lib/payments/payhero';
 
 /**
  * GET /api/payments/[id]/status?wait=55000
  *
  * Long-poll endpoint for the "waiting for M-Pesa PIN" flow. After an STK push,
  * the tenant's screen holds a live waiting state while the tenant enters their
- * PIN on their phone. The provider callback (Daraja webhook)
- * finalizes the payment asynchronously — this route polls the payment record
- * server-side and only responds once the payment leaves PENDING (COMPLETED /
- * FAILED / CANCELLED) or the wait window (max 1 minute) elapses, so the client
- * doesn't have to hammer the API with rapid refreshes.
+ * PIN on their phone. The provider callback (Payhero webhook, or Daraja when
+ * that fallback is configured) finalizes the payment asynchronously — this
+ * route polls the payment record server-side and only responds once the payment
+ * leaves PENDING (COMPLETED / FAILED / CANCELLED) or the wait window (max 1
+ * minute) elapses, so the client doesn't have to hammer the API with rapid
+ * refreshes.
  *
  * The client chains requests until its own 60s deadline; if the hosting
  * platform cuts the request early the client simply retries.
  *
  * Webhook fallback: the callback can fail to reach the server (DNS blip,
  * transient network errors, a redeploy mid-payment). While waiting, this route
- * therefore also asks Daraja directly for the STK outcome every ~9s and
- * finalizes the payment from its answer — so the payment flow always completes,
- * with or without callback delivery.
+ * therefore also asks the owning provider directly for the STK outcome every
+ * ~9s and finalizes the payment from its answer — so the payment flow always
+ * completes, with or without callback delivery.
  */
 export const dynamic = 'force-dynamic';
 
@@ -72,8 +74,38 @@ interface NormalizedStatus {
  * finalizes the payment, so a failed query is never terminal.
  */
 async function queryProviderStatus(checkoutRequestId: string): Promise<NormalizedStatus | null> {
-  // Daraja owns every STK push. PalPluss is only queried when Daraja is not
-  // configured, so payments still settle if this environment falls back.
+  // PayHero packs its ids as `reference|CheckoutRequestID`, so the `|` marks
+  // the owning provider and routes the payment with no schema change. Rows
+  // without the marker fall through to Daraja (the legacy provider), then to
+  // PayHero for environments where it is the only STK provider configured.
+  const packed = unpackPayheroIds(checkoutRequestId);
+  const usePayhero = !!packed || (!isDarajaConfigured() && isPayheroConfigured());
+
+  if (usePayhero) {
+    const reference = packed?.reference ?? checkoutRequestId;
+    try {
+      const tx = await payheroQueryStatus(reference);
+      if (tx.status === 'QUEUED') return { status: 'QUEUED', id: reference };
+      return {
+        status: tx.status,
+        // The real M-Pesa receipt becomes the transaction code; PayHero's own
+        // reference stands in when it reports none. The packed id is stored
+        // unchanged — it is already the pair the callback and this query key on.
+        id: tx.mpesaReceipt || reference,
+        receipt: tx.mpesaReceipt,
+        resultDesc: tx.resultDesc,
+      };
+    } catch (error) {
+      console.warn(
+        '[Payment Status] PayHero query failed (will retry):',
+        error instanceof Error ? error.message : error
+      );
+      return null;
+    }
+  }
+
+  // Daraja owns every STK push it issued. PalPluss is only queried when Daraja
+  // is not configured, so payments still settle if this environment falls back.
   if (isDarajaConfigured()) {
     try {
       const tx = await darajaQueryStatus(checkoutRequestId);

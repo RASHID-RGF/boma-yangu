@@ -6,6 +6,8 @@ import {
   unpackPayheroIds,
   formatPhoneForPayhero,
   resolveChannelId,
+  stkPush,
+  PayheroApiError,
 } from '@/lib/payments/payhero';
 
 // The exact payload documented at
@@ -139,5 +141,52 @@ test('resolveChannelId ignores non-numeric legacy channel ids and falls back to 
   } finally {
     if (previous === undefined) delete process.env.PAYHERO_CHANNEL_ID;
     else process.env.PAYHERO_CHANNEL_ID = previous;
+  }
+});
+
+test('a refusal surfaces Payhero\'s own message, never raw JSON in the payment toast', async () => {
+  // Payhero answers account-level refusals with {error_code, error_message} and
+  // no `message` field. Falling through to the raw body would put JSON in the
+  // tenant-facing error, so both fields must be read.
+  const originalFetch = globalThis.fetch;
+  const envKeys = ['PAYHERO_BASIC_AUTH_TOKEN', 'PAYHERO_API_USERNAME', 'PAYHERO_API_PASSWORD'] as const;
+  const saved: Record<string, string | undefined> = {};
+  for (const key of envKeys) saved[key] = process.env[key];
+
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error_code: 'PERMISSION_DENIED',
+        error_message: 'Merchant Account Inactive',
+        status_code: 500,
+      }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    )) as typeof fetch;
+  process.env.PAYHERO_BASIC_AUTH_TOKEN = 'Basic dTFlYWpzOGs=';
+  delete process.env.PAYHERO_API_USERNAME;
+  delete process.env.PAYHERO_API_PASSWORD;
+
+  try {
+    await assert.rejects(
+      // Channel id supplied explicitly so the test never depends on .env.
+      () => stkPush('0700000000', 1, 'INV-001', 13268),
+      (err: any) => {
+        assert.ok(err instanceof PayheroApiError, 'expected a PayheroApiError');
+        assert.equal(err.httpStatus, 500);
+        assert.match(err.message, /Merchant Account Inactive/);
+        assert.match(err.message, /PERMISSION_DENIED/);
+        // A pointer to where account-level refusals are actually resolved.
+        assert.match(err.message, /PayHero dashboard/);
+        assert.doesNotMatch(err.message, /^\{/, 'raw JSON must never reach the toast');
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of envKeys) {
+      const value = saved[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });

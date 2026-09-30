@@ -2,19 +2,36 @@ import prisma from '@/lib/db/prisma';
 import { generateReceiptNumber } from '@/lib/utils/format';
 import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { isDarajaConfigured } from '@/lib/payments/daraja';
+import { isPayheroConfigured } from '@/lib/payments/payhero';
 
 /** True when PalPluss credentials are configured (hosted pay-link only). */
 export function isPalplussConfigured(): boolean {
   return !!process.env.PALPLUSS_API_KEY;
 }
 
+/** The STK push providers this platform can fire. */
+export type StkProvider = 'PAYHERO' | 'DARAJA';
+
 /**
- * True when the STK provider is configured. Daraja is the platform's payment
- * provider. When this is false the payment API refuses the request outright —
- * it never fabricates a completed transaction.
+ * Which provider fires STK pushes in this environment. PayHero wins when its
+ * credentials are present (it is the platform's payment provider); Daraja is
+ * the fallback for environments configured with the DARAJA_* credentials.
+ *
+ * Chosen lazily so an unconfigured provider can never crash startup, and so
+ * every call site (initiation, status polling, error messages) agrees on one
+ * answer.
+ */
+export function getStkProvider(): StkProvider {
+  return isPayheroConfigured() ? 'PAYHERO' : 'DARAJA';
+}
+
+/**
+ * True when the STK provider is configured. PayHero is the platform's payment
+ * provider, with Daraja as the fallback. When this is false the payment API
+ * refuses the request outright — it never fabricates a completed transaction.
  */
 export function isStkProviderConfigured(): boolean {
-  return isDarajaConfigured();
+  return isPayheroConfigured() || isDarajaConfigured();
 }
 
 /** Generates a realistic-looking transaction code for simulation mode. */

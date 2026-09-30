@@ -6,7 +6,12 @@ import { isManagementRole } from '@/lib/auth/rbac';
 
 import { isValidSafaricomPhoneNumber } from '@/lib/payments/palpluss';
 import { stkPush as darajaStkPush, DarajaApiError } from '@/lib/payments/daraja';
-import { finalizePayment, isStkProviderConfigured } from '@/lib/payments/finalize';
+import {
+  stkPush as payheroStkPush,
+  packPayheroIds,
+  PayheroApiError,
+} from '@/lib/payments/payhero';
+import { finalizePayment, isStkProviderConfigured, getStkProvider } from '@/lib/payments/finalize';
 import { isPayLinkConfigured } from '@/lib/payments/pay-link-server';
 import { z } from 'zod';
 
@@ -341,10 +346,11 @@ export async function POST(request: Request) {
           : 'RENT';
       const accountRef = accountReference;
 
-      // ---- STK Push: Safaricom Daraja (M-Pesa Express / Lipa na M-Pesa) ----
+      // ---- STK Push: PayHero (platform provider), Daraja as fallback ----
       // The PIN prompt is sent to exactly the phone number the tenant entered.
-      // There is no simulation path: an unconfigured provider or a Daraja error
-      // fails the request loudly instead of recording money that never moved.
+      // There is no simulation path: an unconfigured provider or a provider
+      // error fails the request loudly instead of recording money that never
+      // moved.
       if (!isStkProviderConfigured()) {
         console.error('[Payment] No STK provider configured — aborting STK push');
         await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
@@ -352,25 +358,40 @@ export async function POST(request: Request) {
           {
             success: false,
             error:
-              'M-Pesa payments are not configured. Set DARAJA_CONSUMER_KEY, DARAJA_CONSUMER_SECRET, DARAJA_SHORTCODE and DARAJA_PASSKEY.',
+              'M-Pesa payments are not configured. Set PAYHERO_BASIC_AUTH_TOKEN and PAYHERO_CHANNEL_ID (or the DARAJA_* credentials).',
           },
           { status: 503 }
         );
       }
 
+      const provider = getStkProvider();
       try {
         console.log(
-          '[Payment] Daraja STK push → phone:',
+          `[Payment] ${provider} STK push → phone:`,
           phone,
           'amount:',
           amount,
           'ref:',
           accountRef
         );
-        const stk = await darajaStkPush(phone, amount, accountRef, 'Rent payment');
+        // PayHero needs two ids later — its own `reference` (the status-query
+        // key) and Safaricom's `CheckoutRequestID` (the webhook's match key) —
+        // but there is only one column, so they are packed as
+        // `reference|CheckoutRequestID`. The `|` also marks the owning provider,
+        // letting the status route and the callback route route the payment
+        // without a schema change. Daraja only ever has the CheckoutRequestID.
+        let storedRequestId: string;
+        if (provider === 'PAYHERO') {
+          const stk = await payheroStkPush(phone, amount, accountRef);
+          storedRequestId = packPayheroIds(stk.transactionId, stk.checkoutRequestId);
+        } else {
+          const stk = await darajaStkPush(phone, amount, accountRef, 'Rent payment');
+          storedRequestId = stk.transactionId;
+        }
+
         await prisma.payment.update({
           where: { id: payment.id },
-          data: { checkoutRequestId: stk.transactionId },
+          data: { checkoutRequestId: storedRequestId },
         });
         return NextResponse.json(
           {
@@ -387,9 +408,9 @@ export async function POST(request: Request) {
           { status: 201 }
         );
       } catch (stkError) {
-        console.error('[Payment] Daraja STK push failed:', stkError);
+        console.error(`[Payment] ${provider} STK push failed:`, stkError);
         await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
-        if (stkError instanceof DarajaApiError) {
+        if (stkError instanceof PayheroApiError || stkError instanceof DarajaApiError) {
           const status =
             stkError.httpStatus >= 400 && stkError.httpStatus < 600 ? stkError.httpStatus : 502;
           return NextResponse.json(
