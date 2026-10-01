@@ -278,6 +278,9 @@ model Document {
   mimeType      String?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
+  /// Set when the file bytes are stored in-app (Attachment record) so the
+  /// document can be viewed inline without any external storage.
+  attachmentId  String?
   uploadedById  String
   propertyId    String?
   tenantId      String?
@@ -290,6 +293,7 @@ model Document {
   property      Property?           @relation(fields: [propertyId], references: [id])
   tenant        Tenant?             @relation(fields: [tenantId], references: [id])
   uploadedBy    User                @relation(fields: [uploadedById], references: [id])
+  attachment    Attachment?         @relation("DocumentAttachment", fields: [attachmentId], references: [id])
 }
 
 model Message {
@@ -307,7 +311,25 @@ model Message {
   tenant     Tenant?   @relation(fields: [tenantId], references: [id])
   unit       Unit?     @relation(fields: [unitId], references: [id])
   sender     User      @relation("MessageSender", fields: [senderId], references: [id])
+  attachments Attachment[]
   notifications          Notification[]
+}
+
+/// Files attached to a message or filed under Documents. Bytes are stored in
+/// the database so attachments work with no external storage dependency —
+/// the recipient opens the message in the system and views the file inline.
+model Attachment {
+  id           String   @id @default(uuid())
+  filename     String
+  mimeType     String   @default("application/octet-stream")
+  size         Int
+  data         Bytes
+  createdAt    DateTime @default(now())
+  messageId    String?
+  message      Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadedById String?
+  tenantId     String?
+  documents    Document[] @relation("DocumentAttachment")
 }
 
 model ActivityLog {
