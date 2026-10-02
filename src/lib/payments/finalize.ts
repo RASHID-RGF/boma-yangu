@@ -139,8 +139,38 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
       });
     }
 
-    // Attach the transaction message to the Documents section as a RECEIPT document.
-    await tx.document.create({
+    // Money state only. Receipts, notifications and emails are deliberately
+    // NOT part of this transaction — see below.
+    return paid;
+    },
+    { timeout: 15_000 }
+  );
+
+  // Lost the claim race: another finalizer (webhook vs. provider poll) already
+  // completed this payment and owns the side effects.
+  if (updated.status !== 'COMPLETED') return updated;
+
+  // A payment the tenant has already made must never be lost to a cosmetic
+  // failure. Everything below runs AFTER the commit and is best-effort: a
+  // failed INSERT, a slow SMTP call or a down notification service logs a
+  // warning and leaves the payment COMPLETED. Previously all of it ran inside
+  // the transaction, so any failure (e.g. a missing `Document.attachmentId`
+  // column) rolled the status flip back to PENDING — the tenant was debited by
+  // M-Pesa while the app kept counting down and showed "pending".
+  const runSideEffect = async (label: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (error) {
+      console.error(
+        `[Payment] ${label} failed for payment ${payment.id} — payment is still COMPLETED:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  };
+
+  // Receipt document in the Documents section.
+  await runSideEffect('receipt document', () =>
+    prisma.document.create({
       data: {
         name: `Payment Receipt — ${receiptNumber} (${options.transactionCode})`,
         type: 'RECEIPT',
@@ -150,21 +180,26 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
         propertyId: payment.unit?.propertyId ?? payment.tenant?.unit?.propertyId ?? null,
         invoiceId: invoice?.id ?? null,
       },
-    });
+    })
+  );
 
-    // Notify the tenant (in-app + email).
-    if (payment.tenant?.userId) {
-      await tx.notification.create({
+  // Notify the tenant (in-app + email) — each on its own so one can't block
+  // the other.
+  const tenantUserId = payment.tenant?.userId ?? null;
+  if (tenantUserId) {
+    await runSideEffect('tenant notification', () =>
+      prisma.notification.create({
         data: {
-          userId: payment.tenant.userId,
+          userId: tenantUserId,
           type: 'PAYMENT_RECEIVED',
           title: 'Payment received',
           message: transactionMessage,
         },
-      });
-      // Email the tenant their payment confirmation.
+      })
+    );
+    await runSideEffect('tenant email', async () => {
       const tenantUser = await prisma.user.findUnique({
-        where: { id: payment.tenant.userId },
+        where: { id: tenantUserId },
         select: { email: true, firstName: true, lastName: true },
       });
       if (tenantUser?.email) {
@@ -176,24 +211,27 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
           category: 'Payment',
         });
       }
-    }
+    });
+  }
 
-    // The landlord is the property owner (the true recipient of rent), falling
-    // back to the invoice creator. This matters for tenant-raised invoices where
-    // invoice.createdById is the tenant themselves.
-    const landlordId = payment.tenant?.unit?.property?.ownerId ?? invoice?.createdById ?? null;
-    if (landlordId && landlordId !== payment.tenant?.userId) {
-      await tx.notification.create({
+  // The landlord is the property owner (the true recipient of rent), falling
+  // back to the invoice creator. This matters for tenant-raised invoices where
+  // invoice.createdById is the tenant themselves.
+  const landlordId = payment.tenant?.unit?.property?.ownerId ?? invoice?.createdById ?? null;
+  if (landlordId && landlordId !== payment.tenant?.userId) {
+    await runSideEffect('landlord notification', () =>
+      prisma.notification.create({
         data: {
           userId: landlordId,
           type: 'PAYMENT_RECEIVED',
           title: `Payment from ${payment.tenant?.firstName || 'tenant'}`,
           message: transactionMessage,
         },
-      });
-      // Email the landlord about the payment received.
+      })
+    );
+    await runSideEffect('landlord email', async () => {
       const landlord = await prisma.user.findUnique({
-        where: { id: landlordId },
+        where: { id: landlordId! },
         select: { email: true, firstName: true, lastName: true },
       });
       if (landlord?.email) {
@@ -205,23 +243,27 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
           category: 'Payment',
         });
       }
-    }
+    });
+  }
 
-    // Send the tenant a message with the transaction details.
-    if (payment.tenant?.userId && landlordId) {
-      await tx.message.create({
+  // Send the tenant a message with the transaction details.
+  if (payment.tenant?.userId && landlordId) {
+    await runSideEffect('tenant message', () =>
+      prisma.message.create({
         data: {
           senderId: landlordId,
-          receiverId: payment.tenant.userId,
+          receiverId: payment.tenant!.userId,
           subject: 'Payment confirmation',
           content: transactionMessage,
         },
-      });
-    }
+      })
+    );
+  }
 
-    // Activity feed entry so every payment is reflected in the estate log
-    // (dashboard activity, admin views) with the property it belongs to.
-    await tx.activityLog.create({
+  // Activity feed entry so every payment is reflected in the estate log
+  // (dashboard activity, admin views) with the property it belongs to.
+  await runSideEffect('activity log', () =>
+    prisma.activityLog.create({
       data: {
         action: 'PAYMENT_RECORDED',
         description: transactionMessage,
@@ -230,13 +272,7 @@ export async function finalizePayment(paymentId: string, options: FinalizeOption
         userId: payment.recordedById,
         propertyId: payment.unit?.propertyId ?? payment.tenant?.unit?.propertyId ?? null,
       },
-    });
-
-
-
-    return paid;
-    },
-    { timeout: 15_000 }
+    })
   );
 
   return updated;
