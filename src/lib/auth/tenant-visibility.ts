@@ -102,3 +102,58 @@ export function classifyExistingTenant(
   if (canClaimTenantRecord(tenant, session)) return 'CLAIMABLE';
   return 'FOREIGN';
 }
+
+/**
+ * What an "add tenant" flow should do when the entered contact matches an
+ * existing Tenant record.
+ *
+ * EMAIL identifies the person's login account, so it is a hard duplicate
+ * guard: unassigned records are adopted, real duplicates are blocked with
+ * actionable guidance.
+ *
+ * PHONE is NOT an identity — Kenyan households routinely share one number, so
+ * a phone match can never block a landlord from adding their own tenant. An
+ * unassigned record is still reused (re-inviting the same person), but an
+ * occupied record simply results in a fresh record for this landlord. The old
+ * behaviour — blocking with `"already has a room. Use Change Unit"` even when
+ * the record belongs to a different landlord — left no way forward at all.
+ */
+export type TenantContactDecision =
+  | { action: 'ADOPT' }
+  | { action: 'CREATE' }
+  | { action: 'BLOCK'; message: string };
+
+export interface OnboardingContactRecord extends TenantVisibilityRecord {
+  firstName?: string | null;
+  lastName?: string | null;
+}
+
+export function resolveTenantContact(
+  existing: OnboardingContactRecord | null,
+  matchType: 'EMAIL' | 'PHONE',
+  session: TenantScopeSession
+): TenantContactDecision {
+  if (!existing) return { action: 'CREATE' };
+
+  // An unassigned record this landlord may claim (or that nobody has added)
+  // is the same person being onboarded — reuse it instead of duplicating it.
+  if (!existing.unitId && canClaimTenantRecord(existing, session)) {
+    return { action: 'ADOPT' };
+  }
+
+  if (matchType === 'PHONE') {
+    // Shared household phone: never block — give this landlord their own record.
+    return { action: 'CREATE' };
+  }
+
+  const name =
+    `${existing.firstName ?? ''} ${existing.lastName ?? ''}`.trim() || 'This person';
+
+  if (canManageTenantRecord(existing, session)) {
+    return {
+      action: 'BLOCK',
+      message: `${name} already has a room. Use "Change Unit" to move them.`,
+    };
+  }
+  return { action: 'BLOCK', message: `${name} has already been added by another landlord.` };
+}

@@ -5,6 +5,7 @@ import {
   canManageTenantRecord,
   canClaimTenantRecord,
   classifyExistingTenant,
+  resolveTenantContact,
 } from '../tenant-visibility';
 
 const landlord = { userId: 'landlord-1', role: 'LANDLORD' };
@@ -61,4 +62,44 @@ test('classification splits existing records into own / claimable / foreign', ()
   assert.equal(classifyExistingTenant(addedByOther, landlord), 'FOREIGN');
   assert.equal(classifyExistingTenant(onOtherProperty, landlord), 'FOREIGN');
   assert.equal(classifyExistingTenant(selfRegistered, admin), 'OWN');
+});
+
+test('an email match is a hard duplicate guard with actionable guidance', () => {
+  // No match → the person is new.
+  assert.deepEqual(resolveTenantContact(null, 'EMAIL', landlord), { action: 'CREATE' });
+
+  // The landlord's own occupant → blocked, pointing at the Change Unit button.
+  const named = { ...onMyProperty, firstName: 'RAS', lastName: 'SEE' };
+  assert.deepEqual(resolveTenantContact(named, 'EMAIL', landlord), {
+    action: 'BLOCK',
+    message: 'RAS SEE already has a room. Use "Change Unit" to move them.',
+  });
+
+  // Unassigned records (their own pending invite / self-registered profile)
+  // are adopted rather than duplicated.
+  assert.equal(resolveTenantContact(addedByMe, 'EMAIL', landlord).action, 'ADOPT');
+  assert.equal(resolveTenantContact(selfRegistered, 'EMAIL', landlord).action, 'ADOPT');
+
+  // Another landlord's record is never adoptable — but the message says so.
+  assert.deepEqual(resolveTenantContact(onOtherProperty, 'EMAIL', landlord), {
+    action: 'BLOCK',
+    message: 'This person has already been added by another landlord.',
+  });
+  assert.equal(resolveTenantContact(addedByOther, 'EMAIL', landlord).action, 'BLOCK');
+});
+
+test('a shared phone match never blocks adding a tenant (regression)', () => {
+  // Households share one phone number: an OCCUPIED record matching by phone
+  // must not block the landlord — they get their own record instead. This is
+  // the "already has a room. Use Change Unit" dead end that stopped every add.
+  assert.deepEqual(resolveTenantContact(onMyProperty, 'PHONE', landlord), { action: 'CREATE' });
+  assert.deepEqual(resolveTenantContact(onOtherProperty, 'PHONE', landlord), { action: 'CREATE' });
+
+  // Unassigned records are still reused so re-inviting the same person does
+  // not create duplicates.
+  assert.equal(resolveTenantContact(addedByMe, 'PHONE', landlord).action, 'ADOPT');
+  assert.equal(resolveTenantContact(selfRegistered, 'PHONE', landlord).action, 'ADOPT');
+
+  // Another landlord's pending invite stays theirs — we add our own record.
+  assert.equal(resolveTenantContact(addedByOther, 'PHONE', landlord).action, 'CREATE');
 });

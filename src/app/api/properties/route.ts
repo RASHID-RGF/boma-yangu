@@ -24,20 +24,14 @@ const createPropertySchema = z.object({
     )
     .max(200, 'A property can hold at most 200 rooms')
     .optional(),
-  // M-Pesa collection details: where the landlord collects rent for this
-  // property. Shown to tenants and used to route the STK push — the tenant
-  // only taps Pay and enters their PIN.
+  // M-Pesa collection details — accepted for backwards compatibility but
+  // IGNORED: rent always collects to the platform Buy Goods till (9062851),
+  // which cannot be changed per property.
   mpesaPaybill: z.string().trim().optional().or(z.literal('')),
   mpesaAccountName: z.string().trim().optional().or(z.literal('')),
   mpesaTillNumber: z.string().trim().optional().or(z.literal('')),
   mpesaPhone: z.string().trim().optional().or(z.literal('')),
 });
-
-/** Converts empty strings to null so unused collection details stay clean. */
-function orNull(value?: string | null): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
 
 /** Deduplicate room names (case-insensitive) within the same property. */
 function dedupeRooms(
@@ -122,10 +116,12 @@ export async function POST(request: Request) {
         expenses: 0,
         images: [],
         ownerId: session.userId,
-        mpesaPaybill: orNull(validated.mpesaPaybill),
-        mpesaAccountName: orNull(validated.mpesaAccountName),
-        mpesaTillNumber: orNull(validated.mpesaTillNumber),
-        mpesaPhone: orNull(validated.mpesaPhone),
+        // Payment details are locked to the platform Buy Goods till (9062851):
+        // any mpesa* fields in the request body are deliberately not stored.
+        mpesaPaybill: null,
+        mpesaAccountName: null,
+        mpesaTillNumber: null,
+        mpesaPhone: null,
         // Every room starts VACANT so it can be allocated to a tenant.
         units: {
           create: rooms.map((room) => ({

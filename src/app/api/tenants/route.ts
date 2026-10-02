@@ -8,13 +8,12 @@ import {
   normalizePhone,
 } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
-import { classifyExistingTenant, getTenantScopeWhere } from '@/lib/auth/tenant-visibility';
+import { getTenantScopeWhere, resolveTenantContact } from '@/lib/auth/tenant-visibility';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
 
 const createTenantSchema = z.object({
   firstName: z.string().min(2, 'First name is required'),
@@ -126,48 +125,39 @@ export async function POST(request: Request) {
     const email = normalizeEmail(validated.email);
     const phone = normalizePhone(validated.phone) || '';
 
-    // One tenant per person: identify them by email or phone so a landlord
-    // onboard cannot silently create a duplicate of the same tenant.
-    // Only check non-empty values — empty phones/emails should not collide.
-    const duplicateFilters: Prisma.TenantWhereInput[] = [];
-    if (email) duplicateFilters.push({ email: { equals: email, mode: 'insensitive' } });
-    if (phone && phone.length >= 7) duplicateFilters.push({ phone });
-    const existingTenant = duplicateFilters.length > 0
+    // One record per person — but EMAIL and PHONE are not equivalent:
+    //   EMAIL → identifies the login account, so it is a hard duplicate guard
+    //           (unassigned records are adopted, real duplicates blocked with
+    //           actionable guidance).
+    //   PHONE → shared within a household; it may reuse an unassigned record
+    //           but NEVER blocks a landlord from adding their own tenant. The
+    //           old phone-based block left landlords with "already has a room /
+    //           use Change Unit" dead ends for records they could not even see.
+    const contactInclude = {
+      unit: { select: { property: { select: { ownerId: true } } } },
+    } as const;
+    const emailMatch = email
       ? await prisma.tenant.findFirst({
-          where: { OR: duplicateFilters },
-          include: { unit: { select: { property: { select: { ownerId: true } } } } },
+          where: { email: { equals: email, mode: 'insensitive' } },
+          include: contactInclude,
         })
       : null;
+    const phoneMatch =
+      !emailMatch && phone && phone.length >= 7
+        ? await prisma.tenant.findFirst({ where: { phone }, include: contactInclude })
+        : null;
+    const existingTenant = emailMatch ?? phoneMatch;
 
-    // One record per person — but the right reaction depends on who owns the
-    // record that already exists:
-    //   OWN       → it's already this landlord's tenant (or another's unit)
-    //   CLAIMABLE → a profile the person created by registering themselves;
-    //               adopt it (set addedById) instead of creating a duplicate
-    //   FOREIGN   → another landlord already added them; refuse the add
-    const existingRelation = existingTenant
-      ? classifyExistingTenant(existingTenant, session)
-      : null;
-    const claimableTenant = existingRelation === 'CLAIMABLE' ? existingTenant : null;
-
-    if (existingTenant && existingRelation === 'OWN') {
+    const decision = resolveTenantContact(existingTenant, emailMatch ? 'EMAIL' : 'PHONE', session);
+    if (decision.action === 'BLOCK') {
       return NextResponse.json(
-        {
-          success: false,
-          error: `${existingTenant.firstName} ${existingTenant.lastName} is already a tenant. Use "Assign Unit" in the tenant list instead.`,
-        },
+        { success: false, error: decision.message },
         { status: 400 }
       );
     }
-    if (existingTenant && existingRelation === 'FOREIGN') {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `${existingTenant.firstName} ${existingTenant.lastName} has already been added by another landlord.`,
-        },
-        { status: 400 }
-      );
-    }
+    // ADOPT reuses the unassigned record (this landlord's pending invite or the
+    // profile the person created by registering) instead of duplicating it.
+    const claimableTenant = decision.action === 'ADOPT' ? existingTenant : null;
 
     // Resolve the room being allocated (if any).
     let unit: {

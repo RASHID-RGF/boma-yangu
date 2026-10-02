@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { PropertyType, PROPERTY_TYPE_LABELS } from '@/types';
+import { PLATFORM_TILL_NUMBER } from '@/lib/payments/platform';
 import { Building2, ArrowLeft, MapPin, Plus, Trash2, DoorOpen, Wallet } from 'lucide-react';
 import Link from 'next/link';
 
@@ -44,14 +45,8 @@ export default function NewPropertyPage() {
     country: 'Kenya',
   });
 
-  // M-Pesa collection details: where rent for this property goes. Sent with
-  // every room allocation and shown to the tenant on My Room.
-  const [pay, setPay] = useState({
-    mpesaPaybill: '',
-    mpesaAccountName: '',
-    mpesaTillNumber: '',
-    mpesaPhone: '',
-  });
+  // Rent always collects to the platform's fixed Buy Goods till — there are
+  // no per-property payment details to enter (see PLATFORM_TILL_NUMBER).
 
   // Rooms (unit names) created together with the property. All start VACANT.
   const [rooms, setRooms] = useState<RoomDraft[]>([newRoom()]);
@@ -78,37 +73,10 @@ export default function NewPropertyPage() {
       const res = await fetch('/api/properties', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, ...pay, units: payloadUnits }),
+        body: JSON.stringify({ ...form, units: payloadUnits }),
       });
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error(result.error || 'Failed to create property');
-
-      // If the landlord entered a till/paybill, register it as this property's
-      // PalPluss collection channel so rent lands in THEIR account. Channel
-      // registration is best-effort: the property is still created if PalPluss
-      // rejects the number, and rent falls back to the platform default.
-      const newPropertyId: string | undefined = result.data?.id;
-      const shortcode = pay.mpesaTillNumber.trim() || pay.mpesaPaybill.trim();
-      if (newPropertyId && shortcode) {
-        try {
-          const chRes = await fetch(`/api/properties/${newPropertyId}/channel`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: pay.mpesaTillNumber.trim() ? 'TILL' : 'PAYBILL',
-              shortcode,
-              accountName: pay.mpesaAccountName.trim() || form.name,
-            }),
-          });
-          const chResult = await chRes.json();
-          if (!chRes.ok || !chResult.success) {
-            console.warn('Channel registration failed:', chResult.error);
-            toast('Property created — but the till/paybill could not be registered yet. Set it under Properties → Rent Collection.', { icon: '⚠️' });
-          }
-        } catch {
-          toast('Property created — set your till/paybill under Properties → Rent Collection.', { icon: '⚠️' });
-        }
-      }
 
       const created = result.data?.units?.length
         ? ` with ${result.data.units.length} room${result.data.units.length === 1 ? '' : 's'}`
@@ -207,50 +175,26 @@ export default function NewPropertyPage() {
                 />
               </div>
 
-              {/* Where rent goes: M-Pesa collection details for this property */}
+              {/* Where rent goes: locked to the platform Buy Goods till */}
               <div className="pt-4 border-t border-gray-100 space-y-3">
                 <div>
                   <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
                     <Wallet className="w-4 h-4" />
-                    Rent Payment Details (optional)
+                    Rent Payment Details
                   </label>
                   <p className="text-xs text-[#646669] mt-1">
-                    Where your tenants&apos; rent is collected. This is sent to tenants with their room
-                    allocation and shown under My Room. Tenants just tap Pay and receive an M-Pesa
-                    prompt — they never type a paybill.
+                    Sent to tenants with their room allocation and shown under My Room. Tenants just
+                    tap Pay and receive an M-Pesa prompt — they never type a paybill.
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    name="mpesaPaybill"
-                    label="M-Pesa Paybill"
-                    placeholder="e.g. 123456"
-                    value={pay.mpesaPaybill}
-                    onChange={(e) => setPay((p) => ({ ...p, mpesaPaybill: e.target.value }))}
-                  />
-                  <Input
-                    name="mpesaAccountName"
-                    label="Account Name"
-                    placeholder="e.g. Green Heights"
-                    value={pay.mpesaAccountName}
-                    onChange={(e) => setPay((p) => ({ ...p, mpesaAccountName: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    name="mpesaTillNumber"
-                    label="Till Number"
-                    placeholder="e.g. 654321"
-                    value={pay.mpesaTillNumber}
-                    onChange={(e) => setPay((p) => ({ ...p, mpesaTillNumber: e.target.value }))}
-                  />
-                  <Input
-                    name="mpesaPhone"
-                    label="Phone Number"
-                    placeholder="e.g. 0712345678"
-                    value={pay.mpesaPhone}
-                    onChange={(e) => setPay((p) => ({ ...p, mpesaPhone: e.target.value }))}
-                  />
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
+                    <Wallet className="w-3.5 h-3.5" />
+                    M-Pesa Buy Goods Till {PLATFORM_TILL_NUMBER}
+                  </p>
+                  <p className="text-xs text-emerald-700/80 mt-1">
+                    Fixed for every property — this destination cannot be changed.
+                  </p>
                 </div>
               </div>
 

@@ -128,7 +128,7 @@ test('formatPhoneForPayhero converts every common format to the documented local
   assert.throws(() => formatPhoneForPayhero('   '));
 });
 
-test('resolveChannelId ignores non-numeric legacy channel ids and falls back to the platform default', () => {
+test('resolveChannelId always uses the platform default — property channels are locked out', () => {
   const previous = process.env.PAYHERO_CHANNEL_ID;
   process.env.PAYHERO_CHANNEL_ID = '133';
   try {
@@ -136,8 +136,9 @@ test('resolveChannelId ignores non-numeric legacy channel ids and falls back to 
     assert.equal(resolveChannelId('0024e5bd-1111-2222-3333-444455556666'), 133);
     assert.equal(resolveChannelId(''), 133);
     assert.equal(resolveChannelId(null), 133);
-    // A numeric per-property channel wins over the default.
-    assert.equal(resolveChannelId('26703032'), 26703032);
+    // Even a numeric per-property channel is ignored — rent always collects
+    // to the platform's fixed destination (the Buy Goods till).
+    assert.equal(resolveChannelId('26703032'), 133);
   } finally {
     if (previous === undefined) delete process.env.PAYHERO_CHANNEL_ID;
     else process.env.PAYHERO_CHANNEL_ID = previous;

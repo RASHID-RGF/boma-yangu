@@ -3,14 +3,14 @@ import prisma from '@/lib/db/prisma';
 import { getSession } from '@/lib/auth/jwt';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { findMatchingTenantUser, normalizeEmail, normalizePhone } from '@/lib/auth/tenant-scope';
-import { canClaimTenantRecord } from '@/lib/auth/tenant-visibility';
+import { canClaimTenantRecord, resolveTenantContact } from '@/lib/auth/tenant-visibility';
 import { deriveNameFromEmail } from '@/lib/utils/contact';
 import { isVacantUnitStatus } from '@/lib/utils/room-assignment';
 import { formatPaymentInstructions } from '@/lib/utils/payment-details';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
 import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
-import type { Prisma, Tenant } from '@prisma/client';
+import type { Tenant } from '@prisma/client';
 
 const assignRoomSchema = z.object({
   // Assign an existing tenant record…
@@ -20,9 +20,9 @@ const assignRoomSchema = z.object({
   phone: z.string().optional().nullable(),
   firstName: z.string().optional().nullable(),
   lastName: z.string().optional().nullable(),
-  // M-Pesa collection details for the property, sent along with the allocation
-  // so the tenant immediately knows where rent goes — and the STK push is
-  // routed to the landlord's paybill/till. Empty strings mean "leave unchanged".
+  // M-Pesa collection details — accepted for backwards compatibility but
+  // IGNORED: the payment destination is locked to the platform Buy Goods till
+  // (9062851) and cannot be changed per allocation.
   mpesaPaybill: z.string().trim().optional(),
   mpesaAccountName: z.string().trim().optional(),
   mpesaTillNumber: z.string().trim().optional(),
@@ -126,30 +126,36 @@ export async function POST(request: Request, { params }: { params: { id: string 
         );
       }
 
-      // Reuse an existing record for the same person instead of duplicating it.
-      const filters: Prisma.TenantWhereInput[] = [];
-      if (email) filters.push({ email: { equals: email, mode: 'insensitive' } });
-      if (phone) filters.push({ phone });
-      const existing = await prisma.tenant.findFirst({
-        where: { OR: filters },
-        include: { unit: { select: { property: { select: { ownerId: true } } } } },
-      });
+      // Match the entered contact against existing records. EMAIL identifies
+      // the person's login account (hard duplicate guard); PHONE does not —
+      // households share one number, so a phone match only ever reuses an
+      // unassigned record and can never block this landlord from adding their
+      // own tenant (the old "already has a room" dead end).
+      const contactInclude = {
+        unit: { select: { property: { select: { ownerId: true } } } },
+      } as const;
+      const emailMatch = email
+        ? await prisma.tenant.findFirst({
+            where: { email: { equals: email, mode: 'insensitive' } },
+            include: contactInclude,
+          })
+        : null;
+      const phoneMatch =
+        !emailMatch && phone
+          ? await prisma.tenant.findFirst({ where: { phone }, include: contactInclude })
+          : null;
+      const existing = emailMatch ?? phoneMatch;
+      const decision = resolveTenantContact(existing, emailMatch ? 'EMAIL' : 'PHONE', session);
 
-      if (existing) {
-        if (existing.unitId) {
-          return NextResponse.json(
-            { success: false, error: `${existing.firstName} ${existing.lastName} already has a room. Use "Change Unit" to move them.` },
-            { status: 400 }
-          );
-        }
-        // Someone else's pending tenant can never be stolen here; an unowned
-        // profile (the person registered themselves) is adopted below.
-        if (!canClaimTenantRecord(existing, session)) {
-          return NextResponse.json(
-            { success: false, error: `${existing.firstName} ${existing.lastName} has already been added by another landlord.` },
-            { status: 400 }
-          );
-        }
+      if (decision.action === 'BLOCK') {
+        return NextResponse.json(
+          { success: false, error: decision.message },
+          { status: 400 }
+        );
+      }
+
+      if (decision.action === 'ADOPT' && existing) {
+        // Reuse the unassigned record for the same person instead of duplicating it.
         tenant = existing;
       } else {
         // Email/phone is enough: derive a display name when none was given.
@@ -183,39 +189,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
       if (linkedUser) userId = linkedUser.id;
     }
 
-    // Persist any collection details sent with the allocation, so the STK
-    // push is routed to the landlord's paybill/till and the tenant sees exactly
-    // where their rent goes.
-    const paymentPatch: Prisma.PropertyUpdateInput = {};
-    if (validated.mpesaPaybill !== undefined)
-      paymentPatch.mpesaPaybill = validated.mpesaPaybill || null;
-    if (validated.mpesaAccountName !== undefined)
-      paymentPatch.mpesaAccountName = validated.mpesaAccountName || null;
-    if (validated.mpesaTillNumber !== undefined)
-      paymentPatch.mpesaTillNumber = validated.mpesaTillNumber || null;
-    if (validated.mpesaPhone !== undefined)
-      paymentPatch.mpesaPhone = validated.mpesaPhone || null;
-    if (Object.keys(paymentPatch).length > 0 && unit.property) {
-      await prisma.property.update({ where: { id: unit.property.id }, data: paymentPatch });
-    }
-
-    // Effective collection details (existing + any just updated) for the
-    // tenant-facing notification.
-    const paymentDetails = {
-      mpesaPaybill:
-        validated.mpesaPaybill !== undefined ? validated.mpesaPaybill : unit.property?.mpesaPaybill,
-      mpesaAccountName:
-        validated.mpesaAccountName !== undefined
-          ? validated.mpesaAccountName
-          : unit.property?.mpesaAccountName,
-      mpesaTillNumber:
-        validated.mpesaTillNumber !== undefined
-          ? validated.mpesaTillNumber
-          : unit.property?.mpesaTillNumber,
-      mpesaPhone:
-        validated.mpesaPhone !== undefined ? validated.mpesaPhone : unit.property?.mpesaPhone,
-    };
-    const payLines = formatPaymentInstructions(paymentDetails);
+    // Payment details sent with the allocation are locked: the tenant is told
+    // rent goes to the platform Buy Goods till (9062851), and any landlord
+    // paybill/till values in the payload are ignored.
+    const payLines = formatPaymentInstructions(null);
 
     const assigned = await prisma.$transaction(async (tx) => {
       const updated = await tx.tenant.update({

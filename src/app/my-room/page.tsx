@@ -294,7 +294,7 @@ export default function MyRoomPage() {
               </Card>
             </div>
 
-            {/* How to Pay — the landlord's exact collection details */}
+            {/* How to Pay — the fixed platform collection details */}
             {hasPaymentDetails(data!.paymentDetails) && (
               <Card>
                 <CardContent className="p-5">
@@ -305,9 +305,8 @@ export default function MyRoomPage() {
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-gray-900">How to Pay Rent</p>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Your landlord receives rent at exactly these details. When you tap Pay, the
-                        M-Pesa prompt is sent to your phone — just enter your PIN. No paybill entry
-                        needed.
+                        Rent is collected at exactly these details. When you tap Pay, the M-Pesa
+                        prompt is sent to your phone — just enter your PIN. No paybill entry needed.
                       </p>
                       <ul className="mt-3 space-y-1">
                         {formatPaymentInstructions(data!.paymentDetails).map((line) => (

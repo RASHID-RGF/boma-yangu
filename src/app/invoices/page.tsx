@@ -186,7 +186,7 @@ export default function InvoicesPage() {
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error(result.error || 'Payment failed');
       if (result.data.status === 'PENDING') {
-        // STK push accepted — keep the modal open and wait up to 2 minutes for
+        // STK push accepted — keep the modal open and wait up to 3 minutes for
         // the tenant to enter their PIN (resolved by the provider callback).
         toast.success(result.data.message || 'Payment prompt sent');
         setPaying(false);
@@ -204,7 +204,7 @@ export default function InvoicesPage() {
     }
   };
 
-  // Called when the 1-minute PIN wait ends (completed / failed / timeout).
+  // Called when the 3-minute PIN wait ends (completed / failed / timeout).
   const handleStkWaitDone = useCallback(async () => {
     setPayInvoice(null);
     setPayPhone('');
@@ -226,7 +226,7 @@ export default function InvoicesPage() {
       handleStkWaitDone();
     } else if (stkWait.phase === 'timeout') {
       toast.error(
-        "We didn't receive your PIN within 2 minutes — the payment is still pending. Re-enter your PIN on your phone or try again."
+        "We didn't receive your PIN within 3 minutes — the payment is still pending. Re-enter your PIN on your phone or try again."
       );
       handleStkWaitDone();
     }
@@ -586,7 +586,7 @@ export default function InvoicesPage() {
             </p>
             <p className="text-xs text-[#646669]">
               A PIN prompt was sent to <strong>{payPhone || 'your number'}</strong>. The request
-              expires after 1 minute — you can retry after that.
+              expires after 3 minutes — you can retry after that.
             </p>
             <div
               className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-emerald-500 text-xl font-bold text-emerald-600"

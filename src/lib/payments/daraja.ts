@@ -13,6 +13,8 @@
  * Docs: https://developer.safaricom.co.ke/M-PesaExpress
  */
 
+import { PLATFORM_TILL_NUMBER } from './platform';
+
 const NAIROBI = 'Africa/Nairobi';
 
 /** Daraja errors carry the HTTP status the payment route surfaces to the browser. */
@@ -51,21 +53,27 @@ export function isSandbox(): boolean {
   return getBaseUrl().includes('sandbox');
 }
 
+/**
+ * The shortcode the STK push is issued against. The platform's destination is
+ * locked to the Buy Goods till (PLATFORM_TILL_NUMBER); DARAJA_SHORTCODE is
+ * only an explicit override for sandbox/testing accounts.
+ */
 export function getShortcode(): string | undefined {
-  return process.env.DARAJA_SHORTCODE?.trim() || undefined;
+  return process.env.DARAJA_SHORTCODE?.trim() || PLATFORM_TILL_NUMBER;
 }
 
-/** PartyB — where the money lands. Defaults to the shortcode (paybill). */
+/** PartyB — where the money lands. Defaults to the platform Buy Goods till. */
 function getPartyB(): string {
-  return process.env.DARAJA_PARTY_B?.trim() || getShortcode() || '';
+  return process.env.DARAJA_PARTY_B?.trim() || getShortcode() || PLATFORM_TILL_NUMBER;
 }
 
 /**
- * `CustomerPayBillOnline` (paybill) or `CustomerBuyGoodsOnline` (till/buy
- * goods). The buy-goods form needs the till in DARAJA_PARTY_B.
+ * `CustomerBuyGoodsOnline` (till/buy goods) is the platform's only mode —
+ * every push defaults to the fixed Buy Goods till. DARAJA_TRANSACTION_TYPE
+ * remains as an explicit override for sandbox paybill testing only.
  */
 function getTransactionType(): string {
-  return process.env.DARAJA_TRANSACTION_TYPE?.trim() || 'CustomerPayBillOnline';
+  return process.env.DARAJA_TRANSACTION_TYPE?.trim() || 'CustomerBuyGoodsOnline';
 }
 
 /**

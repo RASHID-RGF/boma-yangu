@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { SendMailModal } from '@/components/ui/send-mail-modal';
 import {
-  hasPaymentDetails,
   formatPaymentInstructions,
 } from '@/lib/utils/payment-details';
 import { useStkWait } from '@/hooks/useStkWait';
@@ -57,13 +56,6 @@ interface TenantOption {
   unit?: { unitNumber: string; property?: { name: string } } | null;
 }
 
-interface PaymentDestination {
-  mpesaPaybill?: string | null;
-  mpesaAccountName?: string | null;
-  mpesaTillNumber?: string | null;
-  mpesaPhone?: string | null;
-}
-
 const METHOD_LABELS: Record<string, string> = {
   MPESA_STK_PUSH: 'M-Pesa STK Push',
   MPESA_PAY_LINK: 'M-Pesa Pay Link',
@@ -100,8 +92,8 @@ export default function PaymentsPage() {
   const [invoices, setInvoices] = useState<InvoiceOption[]>([]);
   const [paying, setPaying] = useState(false);
   const [payForm, setPayForm] = useState({ invoiceId: '', amount: '', phone: '' });
-  // Where the tenant's rent goes (the landlord's collection details).
-  const [destination, setDestination] = useState<PaymentDestination | null>(null);
+  // The payment destination is fixed (platform Buy Goods till) — always shown
+  // in the pay modal, no fetch needed.
 
   // "Waiting for M-Pesa PIN" state: holds the modal open with a live 60s
   // countdown while the tenant enters their PIN, and long-polls until the
@@ -115,20 +107,7 @@ export default function PaymentsPage() {
   const [linkWait, setLinkWait] = useState<{ paymentId: string; reference: string } | null>(null);
   const [linkDone, setLinkDone] = useState<{ ok: boolean; code?: string | null } | null>(null);
 
-  // Tenants load their room's payment destination so the pay modal shows
-  // exactly the paybill/till/number the landlord configured.
-  useEffect(() => {
-    if (user?.role !== UserRole.TENANT) return;
-    (async () => {
-      try {
-        const res = await fetch('/api/my-room');
-        const result = await res.json();
-        if (res.ok && result.success) setDestination(result.data?.paymentDetails ?? null);
-      } catch {
-        // Destination banner is optional — the pay flow works without it.
-      }
-    })();
-  }, [user?.role]);
+  // Tenants' payment destination is locked to the platform Buy Goods till.
 
   const [mailOpen, setMailOpen] = useState(false);
   // Management "Record Payment" modal
@@ -255,7 +234,7 @@ export default function PaymentsPage() {
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error(result.error || 'Payment failed');
       if (result.data.status === 'PENDING') {
-        // STK push accepted — keep the modal open and wait up to 2 minutes for
+        // STK push accepted — keep the modal open and wait up to 3 minutes for
         // the tenant to enter their PIN (resolved by the provider callback).
         toast.success(result.data.message || 'Payment prompt sent');
         setPaying(false);
@@ -272,7 +251,7 @@ export default function PaymentsPage() {
     }
   };
 
-  // Called when the 1-minute PIN wait ends (completed / failed / timeout).
+  // Called when the 3-minute PIN wait ends (completed / failed / timeout).
   const handleStkWaitDone = useCallback(async () => {
     setPayOpen(false);
     stkWait.reset();
@@ -293,7 +272,7 @@ export default function PaymentsPage() {
       handleStkWaitDone();
     } else if (stkWait.phase === 'timeout') {
       toast.error(
-        "We didn't receive your PIN within 2 minutes — the payment is still pending. Re-enter your PIN on your phone or try again."
+        "We didn't receive your PIN within 3 minutes — the payment is still pending. Re-enter your PIN on your phone or try again."
       );
       handleStkWaitDone();
     }
@@ -641,7 +620,7 @@ export default function PaymentsPage() {
             </p>
             <p className="text-xs text-[#646669]">
               A PIN prompt was sent to <strong>{payForm.phone || 'your number'}</strong>. The request
-              expires after 1 minute — you can retry after that.
+              expires after 3 minutes — you can retry after that.
             </p>
             <div
               className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-emerald-500 text-xl font-bold text-emerald-600"
@@ -696,28 +675,17 @@ export default function PaymentsPage() {
             Any Safaricom M-Pesa number works — this is the number that receives the PIN prompt
             (or that you pay with on the PalPluss link), not a restriction on who can pay.
           </p>
-          {destination && hasPaymentDetails(destination) && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
-              <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
-                <Smartphone className="w-3.5 h-3.5" />
-                Your payment goes to
-              </p>
-              <ul className="mt-1 space-y-0.5">
-                {formatPaymentInstructions({
-                  mpesaPaybill: destination.mpesaPaybill,
-                  mpesaAccountName: destination.mpesaAccountName,
-                  mpesaTillNumber: destination.mpesaTillNumber,
-                  // The landlord's direct phone is intentionally NOT shown:
-                  // rent is collected via the PalPluss link / STK push, and any
-                  // M-Pesa number can pay — it doesn't have to be one specific
-                  // phone, so listing one here would only confuse tenants.
-                  mpesaPhone: null,
-                }).map((line) => (
-                  <li key={line} className="text-xs text-emerald-800">{line}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+            <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5" />
+              Your payment goes to
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {formatPaymentInstructions(null).map((line) => (
+                <li key={line} className="text-xs text-emerald-800">{line}</li>
+              ))}
+            </ul>
+          </div>
           <p className="text-xs text-[#646669]">
             The M-Pesa STK push prompt will be sent to <strong>exactly this number</strong> — enter your PIN on your phone to complete the payment.
             {PAY_LINK_URL

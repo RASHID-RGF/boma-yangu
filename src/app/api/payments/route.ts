@@ -403,10 +403,9 @@ export async function POST(request: Request) {
           const stk = await payheroStkPush(phone, amount, accountRef);
           storedRequestId = packPayheroIds(stk.transactionId, stk.checkoutRequestId);
         } else if (provider === 'PALPLUSS') {
-          // Route the collected rent to the property's own PalPluss channel
-          // (landlord's till/paybill); falls back to the platform default
-          // channel when the property has none.
-          const stk = await palplussStkPush(phone, amount, accountRef, 'Rent payment', unitId);
+          // The destination is locked: rent always lands on the platform's
+          // collection channel (the fixed Buy Goods till, 9062851).
+          const stk = await palplussStkPush(phone, amount, accountRef, 'Rent payment');
           storedRequestId = stk.transactionId;
         } else {
           const stk = await darajaStkPush(phone, amount, accountRef, 'Rent payment');

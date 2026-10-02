@@ -1,3 +1,5 @@
+import { PLATFORM_TILL_NUMBER } from '@/lib/payments/platform';
+
 interface SendSmsParams {
   to: string;
   message: string;
@@ -62,7 +64,7 @@ export async function sendEmail({ to, subject, html }: SendEmailParams): Promise
 }
 
 export function generateRentDueMessage(tenantName: string, amount: number, dueDate: string): string {
-  return `Dear ${tenantName}, your rent of KES ${amount.toLocaleString()} is due on ${dueDate}. Please pay via M-Pesa Paybill ###### Account: [Your Account]. - Boma Yangu`;
+  return `Dear ${tenantName}, your rent of KES ${amount.toLocaleString()} is due on ${dueDate}. Please pay via M-Pesa Buy Goods Till ${PLATFORM_TILL_NUMBER}. - Boma Yangu`;
 }
 
 export function generatePaymentReceivedMessage(tenantName: string, amount: number, receiptNo: string): string {
@@ -107,8 +109,7 @@ export function generateInvoiceEmailHtml(
         </table>
         <p>Please make payment via:</p>
         <ul>
-          <li>M-Pesa Paybill: ###### - Account: [Your Account]</li>
-          <li>M-Pesa Till Number: ######</li>
+          <li>M-Pesa Buy Goods Till: ${PLATFORM_TILL_NUMBER}</li>
           <li>Bank Transfer: [Bank Details]</li>
         </ul>
         <p style="color: #dc2626; font-weight: bold;">Please pay before the due date to avoid late fees.</p>

@@ -8,6 +8,7 @@ import {
   formatPhone,
   parseCallback,
   getCallbackUrl,
+  getShortcode,
   isDarajaConfigured,
   isSandbox,
 } from '@/lib/payments/daraja';
@@ -185,7 +186,7 @@ test('getCallbackUrl refuses insecure callbacks in production but allows them in
   });
 });
 
-test('isDarajaConfigured requires all four credentials, not just one', () => {
+test('isDarajaConfigured needs the credentials; the shortcode defaults to the platform till', () => {
   const complete = {
     DARAJA_ENV: 'production',
     DARAJA_CONSUMER_KEY: 'key',
@@ -196,7 +197,14 @@ test('isDarajaConfigured requires all four credentials, not just one', () => {
 
   withEnv(complete, () => assert.equal(isDarajaConfigured(), true));
 
-  for (const missing of ['DARAJA_CONSUMER_KEY', 'DARAJA_CONSUMER_SECRET', 'DARAJA_SHORTCODE', 'DARAJA_PASSKEY']) {
+  // The shortcode is not required: it falls back to the platform's fixed Buy
+  // Goods till, so pushes default to 9062851 with no extra configuration.
+  withEnv({ ...complete, DARAJA_SHORTCODE: '' }, () => {
+    assert.equal(isDarajaConfigured(), true);
+    assert.equal(getShortcode(), '9062851');
+  });
+
+  for (const missing of ['DARAJA_CONSUMER_KEY', 'DARAJA_CONSUMER_SECRET', 'DARAJA_PASSKEY']) {
     withEnv({ ...complete, [missing]: '' }, () =>
       assert.equal(isDarajaConfigured(), false, `${missing} should be required`)
     );

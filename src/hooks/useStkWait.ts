@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTerminalPaymentStatus } from '@/lib/payments/status';
 
-/** How long the tenant's screen waits for the M-Pesa PIN entry — 2 minutes. */
-export const STK_WAIT_MS = 120_000;
+/** How long the tenant's screen waits for the M-Pesa PIN entry — 3 minutes. */
+export const STK_WAIT_MS = 180_000;
 
 /** How often the client re-arms the long-poll while waiting. */
 const RETRY_DELAY_MS = 1_000;
@@ -11,7 +11,7 @@ export type StkWaitPhase = 'idle' | 'waiting' | 'completed' | 'failed' | 'timeou
 
 export interface StkWaitState {
   phase: StkWaitPhase;
-  /** Seconds left in the 2-minute wait window (only meaningful while waiting). */
+  /** Seconds left in the 3-minute wait window (only meaningful while waiting). */
   secondsLeft: number;
   /** M-Pesa receipt / transaction code once the payment completes. */
   transactionCode?: string | null;
@@ -22,12 +22,22 @@ const INITIAL_STATE: StkWaitState = { phase: 'idle', secondsLeft: STK_WAIT_MS / 
 /**
  * Waits for the tenant to enter their M-Pesa PIN after an STK push.
  *
- * `start(paymentId)` puts the hook into a `waiting` state with a live 2-minute
+ * `start(paymentId)` puts the hook into a `waiting` state with a live 3-minute
  * countdown and long-polls `GET /api/payments/[id]/status` (the server holds
  * each request up to ~55s, responding the moment the payment leaves PENDING).
- * The hook resolves to `completed` / `failed`, or `timeout` after the full
- * 2 minutes — payment records that stay PENDING simply remain pending in the
- * payment history (the provider callback can still land later).
+ *
+ * Two ways the wait ends:
+ *  - **PIN entered** → the payment flips to COMPLETED (provider callback or the
+ *    server-side provider query) and the countdown stops immediately: the phase
+ *    becomes `completed` and the caller refreshes so the payment list shows
+ *    COMPLETED with its receipt code.
+ *  - **Full 3 minutes elapsed** → the phase becomes `timeout`. The wait runs to
+ *    completion first — it is never cut short. Payment records that stay PENDING
+ *    simply remain pending in the payment history (the provider callback can
+ *    still land later).
+ *
+ * Failures (FAILED / CANCELLED / EXPIRED / REVERSED) resolve to `failed` right
+ * away as well.
  *
  * The hook auto-cleans up on unmount and aborts any in-flight poll.
  */
@@ -36,8 +46,13 @@ export function useStkWait() {
   const paymentIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stop = useCallback(() => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -60,7 +75,7 @@ export function useStkWait() {
         const secondsLeft = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
         setState((s) => (s.phase === 'waiting' ? { ...s, secondsLeft } : s));
       };
-      const countdown = setInterval(tick, 250);
+      countdownRef.current = setInterval(tick, 250);
 
       const poll = async () => {
         const controller = new AbortController();
@@ -75,7 +90,8 @@ export function useStkWait() {
 
           const status: string | undefined = result?.data?.status;
           if (res.ok && isTerminalPaymentStatus(status)) {
-            clearInterval(countdown);
+            // PIN entered (or the payment failed) — stop the countdown and the
+            // polling immediately instead of running the window out.
             stop();
             if (status === 'COMPLETED' || status === 'PARTIAL') {
               setState({
@@ -94,7 +110,8 @@ export function useStkWait() {
         if (Date.now() < deadline && paymentIdRef.current === paymentId) {
           timerRef.current = setTimeout(poll, RETRY_DELAY_MS);
         } else {
-          clearInterval(countdown);
+          // The full 3 minutes elapsed with no PIN entry: let the window expire.
+          stop();
           setState({ phase: 'timeout', secondsLeft: 0 });
         }
       };

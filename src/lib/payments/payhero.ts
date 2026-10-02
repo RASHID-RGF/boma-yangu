@@ -65,15 +65,11 @@ export function getWebhookUrl(): string {
  * Resolves the Payhero payment channel (an integer registered under
  * Payment Channels → My Payment Channels).
  *
- * `propertyChannelId` is the per-property collection channel. Payhero channel
- * ids are numeric, so a non-numeric value (a legacy PalPluss channel UUID) is
- * ignored and the platform default is used instead — a property can never break
- * its own tenants' STK pushes.
+ * The destination is locked to the platform's collection channel (the fixed
+ * Buy Goods till) — `propertyChannelId` is deliberately ignored, so a landlord
+ * channel can never route or break its own tenants' STK pushes.
  */
-export function resolveChannelId(propertyChannelId?: string | null): number | undefined {
-  const own = propertyChannelId?.trim();
-  if (own && /^\d+$/.test(own)) return Number(own);
-
+export function resolveChannelId(_propertyChannelId?: string | null): number | undefined {
   const fallback = process.env.PAYHERO_CHANNEL_ID?.trim();
   if (fallback && /^\d+$/.test(fallback)) return Number(fallback);
   return undefined;

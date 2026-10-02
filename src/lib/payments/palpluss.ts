@@ -1,5 +1,4 @@
 import { PalPluss, PalPlussApiError, RateLimitError } from '@palpluss/sdk';
-import prisma from '@/lib/db/prisma';
 import { formatPhoneNumber } from './phone';
 
 // Lazily-created shared client: the SDK throws at construction when the API
@@ -53,17 +52,14 @@ export function getChannelId(): string | undefined {
 }
 
 /**
- * Resolves the PalPluss channel for a rent payment. Multi-landlord platform:
- * each property may carry its own channel (the landlord's own till/paybill,
- * registered via /api/properties/[id]/channel). Falls back to the platform
- * default channel when the property has none — so payments NEVER fail just
- * because a landlord hasn't onboarded their till yet.
+ * Resolves the PalPluss channel for a rent payment.
+ *
+ * The destination is locked to the platform's collection channel (the fixed
+ * Buy Goods till) — any property/landlord channel id is deliberately ignored.
  */
 export function resolveChannelId(
-  propertyChannelId?: string | null
+  _propertyChannelId?: string | null
 ): string | undefined {
-  const own = propertyChannelId?.trim();
-  if (own) return own;
   return getChannelId();
 }
 
@@ -75,28 +71,18 @@ export interface StkPushResult {
 /**
  * Initiates an STK push via PalPluss. The customer receives an M-Pesa PIN
  * prompt on their phone; the outcome arrives at the PalPluss webhook route.
- * `channelId` routes the money to a specific landlord's till/paybill — omit
- * it to use the platform default channel.
+ *
+ * The money always lands on the platform's collection channel (the fixed Buy
+ * Goods till, PLATFORM_TILL_NUMBER) — landlord/property channels are never
+ * used.
  */
 export async function stkPush(
   phoneNumber: string,
   amount: number,
   accountReference: string,
-  transactionDesc: string,
-  propertyId?: string | null
+  transactionDesc: string
 ): Promise<StkPushResult> {
-  // Route the money to the property's own channel (landlord's till/paybill
-  // registered on the property), falling back to the platform default.
-  let channelId: string | undefined;
-  if (propertyId) {
-    const property = await prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { palplussChannelId: true },
-    });
-    channelId = resolveChannelId(property?.palplussChannelId);
-  } else {
-    channelId = getChannelId();
-  }
+  const channelId = getChannelId();
   const tx = await getPalpluss().stkPush({
     amount: Math.round(amount),
     phone: formatPhoneNumber(phoneNumber),

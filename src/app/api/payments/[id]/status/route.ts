@@ -16,12 +16,14 @@ import { queryStatus as payheroQueryStatus, unpackPayheroIds, isPayheroConfigure
  * PIN on their phone. The provider callback (Payhero webhook, or Daraja when
  * that fallback is configured) finalizes the payment asynchronously — this
  * route polls the payment record server-side and only responds once the payment
- * leaves PENDING (COMPLETED / FAILED / CANCELLED) or the wait window (max 1
- * minute) elapses, so the client doesn't have to hammer the API with rapid
+ * leaves PENDING (COMPLETED / FAILED / CANCELLED) or this request's own wait
+ * budget elapses, so the client doesn't have to hammer the API with rapid
  * refreshes.
  *
- * The client chains requests until its own 60s deadline; if the hosting
- * platform cuts the request early the client simply retries.
+ * The client chains requests until its own 3-minute deadline (STK_WAIT_MS); if
+ * the hosting platform cuts a request early the client simply retries. The
+ * moment the tenant enters their PIN the callback / provider query finalizes
+ * the payment as COMPLETED and the next chained request returns immediately.
  *
  * Webhook fallback: the callback can fail to reach the server (DNS blip,
  * transient network errors, a redeploy mid-payment). While waiting, this route
@@ -272,8 +274,9 @@ export async function GET(request: Request, { params }: { params: { id: string }
       }
     }
 
-    // Wait budget: capped at 2 minutes. The client passes `wait` so each request
-    // stays under common 60s proxy timeouts.
+    // Wait budget for this single held request (capped at 2 minutes). The client
+    // passes `wait` (≤ 55s) so each request stays under common 60s proxy
+    // timeouts and simply re-arms until its 3-minute window is up.
     const url = new URL(request.url);
     const waitParam = Number(url.searchParams.get('wait'));
     const waitMs = Math.max(
@@ -282,8 +285,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
     );
 
     // Long-poll: hold the request open until the tenant's PIN entry finalizes
-    // the payment via the provider callback, or the full 2-minute window elapses.
-    // when the client disconnects (`request.signal`). While waiting, the
+    // the payment via the provider callback, this request's wait budget runs
+    // out, or the client disconnects (`request.signal`). While waiting, the
     // provider itself is polled as a webhook fallback so the wait always ends
     // in a terminal status.
     const deadline = Date.now() + waitMs;
