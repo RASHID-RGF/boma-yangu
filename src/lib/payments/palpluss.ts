@@ -1,4 +1,5 @@
 import { PalPluss, PalPlussApiError, RateLimitError } from '@palpluss/sdk';
+import prisma from '@/lib/db/prisma';
 import { formatPhoneNumber } from './phone';
 
 // Lazily-created shared client: the SDK throws at construction when the API
@@ -9,7 +10,11 @@ let _palpluss: PalPluss | undefined;
 export function getPalpluss(): PalPluss {
 
   if (!_palpluss) {
-    const apiKey = process.env.PALPLUSS_API_KEY || process.env['PALPLUSS API KEY'];
+    const apiKey =
+      process.env.PALPLUSS_API_KEY ||
+      process.env['PALPLUSS API KEY'] ||
+      process.env.ALPLUSS_API_KEY ||
+      process.env['ALPLUSS API KEY'];
     _palpluss = new PalPluss({
       apiKey,
       timeout: 30_000,
@@ -38,7 +43,13 @@ export function getWebhookUrl(): string {
 
 /** Platform default payment wallet channel id (see PALPLUSS_CHANNEL_ID). */
 export function getChannelId(): string | undefined {
-  return process.env.PALPLUSS_CHANNEL_ID || process.env['PALPLUSS CHANNEL ID'] || undefined;
+  return (
+    process.env.PALPLUSS_CHANNEL_ID ||
+    process.env['PALPLUSS CHANNEL ID'] ||
+    process.env.ALPLUSS_CHANNEL_ID ||
+    process.env['ALPLUSS CHANNEL ID'] ||
+    undefined
+  );
 }
 
 /**
@@ -72,8 +83,20 @@ export async function stkPush(
   amount: number,
   accountReference: string,
   transactionDesc: string,
-  channelId?: string | null
+  propertyId?: string | null
 ): Promise<StkPushResult> {
+  // Route the money to the property's own channel (landlord's till/paybill
+  // registered on the property), falling back to the platform default.
+  let channelId: string | undefined;
+  if (propertyId) {
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { palplussChannelId: true },
+    });
+    channelId = resolveChannelId(property?.palplussChannelId);
+  } else {
+    channelId = getChannelId();
+  }
   const tx = await getPalpluss().stkPush({
     amount: Math.round(amount),
     phone: formatPhoneNumber(phoneNumber),

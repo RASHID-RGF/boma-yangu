@@ -30,6 +30,11 @@ const PAYHERO = {
   PAYHERO_API_PASSWORD: undefined,
 };
 
+const PALPLUSS = {
+  PALPLUSS_API_KEY: undefined,
+  PALPLUSS_CHANNEL_ID: undefined,
+};
+
 const DARAJA = {
   DARAJA_CONSUMER_KEY: undefined,
   DARAJA_CONSUMER_SECRET: undefined,
@@ -53,45 +58,56 @@ const DARAJA_SET = {
   DARAJA_PASSKEY: 'passkey',
 };
 
+// NOTE: importing `@/lib/payments/finalize` pulls in the Prisma client, which
+// auto-loads the project .env into process.env. Every test that assumes a
+// provider is NOT configured must therefore spread that provider's vars (as
+// undefined) into withEnv — an unset shell env is not enough here.
+
 test('no provider configured → payments are refused, never simulated', () => {
-  withEnv({ ...PAYHERO, ...DARAJA }, () => {
+  withEnv({ ...PAYHERO, ...PALPLUSS, ...DARAJA }, () => {
     assert.equal(isPayheroConfigured(), false);
     assert.equal(isStkProviderConfigured(), false);
   });
 });
 
 test('Payhero alone selects Payhero as the STK provider', () => {
-  withEnv({ ...PAYHERO_SET, ...DARAJA }, () => {
+  withEnv({ ...PAYHERO_SET, ...PALPLUSS, ...DARAJA }, () => {
     assert.equal(isStkProviderConfigured(), true);
     assert.equal(getStkProvider(), 'PAYHERO');
   });
 });
 
 test('Payhero via username/password (no pre-computed token) also selects Payhero', () => {
-  withEnv({ ...PAYHERO, PAYHERO_API_USERNAME: 'u', PAYHERO_API_PASSWORD: 'p', ...DARAJA }, () => {
+  withEnv({ ...PAYHERO, ...PALPLUSS, PAYHERO_API_USERNAME: 'u', PAYHERO_API_PASSWORD: 'p', ...DARAJA }, () => {
     assert.equal(isPayheroConfigured(), true);
     assert.equal(getStkProvider(), 'PAYHERO');
   });
 });
 
+test('PalPluss takes priority when its API key is configured', () => {
+  withEnv({ ...PAYHERO, ...PALPLUSS, PALPLUSS_API_KEY: 'pk_live_ok', ...DARAJA }, () => {
+    assert.equal(getStkProvider(), 'PALPLUSS');
+  });
+});
+
 test('Daraja alone still selects Daraja — the fallback keeps working', () => {
-  withEnv({ ...PAYHERO, ...DARAJA_SET }, () => {
+  withEnv({ ...PAYHERO, ...PALPLUSS, ...DARAJA_SET }, () => {
     assert.equal(isStkProviderConfigured(), true);
     assert.equal(getStkProvider(), 'DARAJA');
   });
 });
 
-test('Payhero wins when both providers are configured', () => {
-  withEnv({ ...PAYHERO_SET, ...DARAJA_SET }, () => {
+test('PalPluss wins when it is configured alongside Payhero', () => {
+  withEnv({ ...PAYHERO_SET, ...PALPLUSS, PALPLUSS_API_KEY: 'pk_live_ok', ...DARAJA_SET }, () => {
     assert.equal(isStkProviderConfigured(), true);
-    assert.equal(getStkProvider(), 'PAYHERO');
+    assert.equal(getStkProvider(), 'PALPLUSS');
   });
 });
 
 test('a partial Payhero set is not enough to select Payhero', () => {
   // Username without a password can never produce a valid Basic auth header,
   // so it must not be mistaken for a configured provider.
-  withEnv({ ...PAYHERO, PAYHERO_API_USERNAME: 'u', ...DARAJA }, () => {
+  withEnv({ ...PAYHERO, ...PALPLUSS, PAYHERO_API_USERNAME: 'u', ...DARAJA }, () => {
     assert.equal(isPayheroConfigured(), false);
     assert.equal(isStkProviderConfigured(), false);
     assert.equal(getStkProvider(), 'DARAJA');

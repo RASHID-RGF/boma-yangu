@@ -4,34 +4,38 @@ import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { isDarajaConfigured } from '@/lib/payments/daraja';
 import { isPayheroConfigured } from '@/lib/payments/payhero';
 
-/** True when PalPluss credentials are configured (hosted pay-link only). */
+/** True when PalPluss credentials are configured (hosted pay-link and STK). */
 export function isPalplussConfigured(): boolean {
-  return !!process.env.PALPLUSS_API_KEY;
+  return !!(
+    process.env.PALPLUSS_API_KEY ||
+    process.env['PALPLUSS API KEY'] ||
+    process.env.ALPLUSS_API_KEY ||
+    process.env['ALPLUSS API KEY']
+  );
 }
 
 /** The STK push providers this platform can fire. */
-export type StkProvider = 'PAYHERO' | 'DARAJA';
+export type StkProvider = 'PALPLUSS' | 'PAYHERO' | 'DARAJA';
 
 /**
- * Which provider fires STK pushes in this environment. PayHero wins when its
- * credentials are present (it is the platform's payment provider); Daraja is
- * the fallback for environments configured with the DARAJA_* credentials.
- *
- * Chosen lazily so an unconfigured provider can never crash startup, and so
- * every call site (initiation, status polling, error messages) agrees on one
- * answer.
+ * Which provider fires STK pushes in this environment. PalPluss is preferred so
+ * the platform uses the active SDK account whenever it is configured; PayHero is
+ * next, with Daraja as the final fallback for legacy environments.
  */
 export function getStkProvider(): StkProvider {
-  return isPayheroConfigured() ? 'PAYHERO' : 'DARAJA';
+  if (isPalplussConfigured()) return 'PALPLUSS';
+  if (isPayheroConfigured()) return 'PAYHERO';
+  return 'DARAJA';
 }
 
 /**
- * True when the STK provider is configured. PayHero is the platform's payment
- * provider, with Daraja as the fallback. When this is false the payment API
- * refuses the request outright — it never fabricates a completed transaction.
+ * True when the STK provider is configured. PalPluss is preferred, PayHero is
+ * the next active provider, and Daraja remains the fallback. When this is false
+ * the payment API refuses the request outright — it never fabricates a completed
+ * transaction.
  */
 export function isStkProviderConfigured(): boolean {
-  return isPayheroConfigured() || isDarajaConfigured();
+  return isPalplussConfigured() || isPayheroConfigured() || isDarajaConfigured();
 }
 
 /** Generates a realistic-looking transaction code for simulation mode. */

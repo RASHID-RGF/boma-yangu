@@ -79,7 +79,7 @@ async function queryProviderStatus(checkoutRequestId: string): Promise<Normalize
   // without the marker fall through to Daraja (the legacy provider), then to
   // PayHero for environments where it is the only STK provider configured.
   const packed = unpackPayheroIds(checkoutRequestId);
-  const usePayhero = !!packed || (!isDarajaConfigured() && isPayheroConfigured());
+  const usePayhero = !!packed || isPayheroConfigured();
 
   if (usePayhero) {
     const reference = packed?.reference ?? checkoutRequestId;
@@ -104,8 +104,33 @@ async function queryProviderStatus(checkoutRequestId: string): Promise<Normalize
     }
   }
 
-  // Daraja owns every STK push it issued. PalPluss is only queried when Daraja
-  // is not configured, so payments still settle if this environment falls back.
+  // PalPluss is the next provider in the stack when PayHero is not active.
+  if (isPalplussConfigured()) {
+    try {
+      const tx = await palplussQueryStatus(checkoutRequestId);
+      if (!tx) return null;
+      return {
+        status: FAILED_STATUSES.has(tx.status)
+          ? 'FAILED'
+          : tx.status === 'SUCCESS'
+            ? 'SUCCESS'
+            : 'QUEUED',
+        id: tx.transaction_id,
+        storeAsCheckoutId: tx.transaction_id,
+        amount: tx.amount,
+        phone: tx.phone_number,
+        resultDesc: tx.result_desc ?? undefined,
+      };
+    } catch (error) {
+      console.warn(
+        '[Payment Status] PalPluss query failed (will retry):',
+        error instanceof Error ? error.message : error
+      );
+      return null;
+    }
+  }
+
+  // Daraja owns every STK push it issued. It remains the final fallback.
   if (isDarajaConfigured()) {
     try {
       const tx = await darajaQueryStatus(checkoutRequestId);
@@ -128,29 +153,7 @@ async function queryProviderStatus(checkoutRequestId: string): Promise<Normalize
     }
   }
 
-  if (!isPalplussConfigured()) return null;
-  try {
-    const tx = await palplussQueryStatus(checkoutRequestId);
-    if (!tx) return null;
-    return {
-      status: FAILED_STATUSES.has(tx.status)
-        ? 'FAILED'
-        : tx.status === 'SUCCESS'
-          ? 'SUCCESS'
-          : 'QUEUED',
-      id: tx.transaction_id,
-      storeAsCheckoutId: tx.transaction_id,
-      amount: tx.amount,
-      phone: tx.phone_number,
-      resultDesc: tx.result_desc ?? undefined,
-    };
-  } catch (error) {
-    console.warn(
-      '[Payment Status] PalPluss query failed (will retry):',
-      error instanceof Error ? error.message : error
-    );
-    return null;
-  }
+  return null;
 }
 
 /**

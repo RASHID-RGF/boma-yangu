@@ -4,7 +4,11 @@ import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
 
-import { isValidSafaricomPhoneNumber } from '@/lib/payments/palpluss';
+import {
+  isValidSafaricomPhoneNumber,
+  stkPush as palplussStkPush,
+  PalPlussApiError,
+} from '@/lib/payments/palpluss';
 import { stkPush as darajaStkPush, DarajaApiError } from '@/lib/payments/daraja';
 import {
   stkPush as payheroStkPush,
@@ -358,7 +362,7 @@ export async function POST(request: Request) {
           {
             success: false,
             error:
-              'M-Pesa payments are not configured. Set PAYHERO_BASIC_AUTH_TOKEN and PAYHERO_CHANNEL_ID (or the DARAJA_* credentials).',
+              'M-Pesa payments are not configured. Set PALPLUSS_API_KEY / PAYHERO_BASIC_AUTH_TOKEN / DARAJA_* credentials and the matching channel id.',
           },
           { status: 503 }
         );
@@ -384,6 +388,12 @@ export async function POST(request: Request) {
         if (provider === 'PAYHERO') {
           const stk = await payheroStkPush(phone, amount, accountRef);
           storedRequestId = packPayheroIds(stk.transactionId, stk.checkoutRequestId);
+        } else if (provider === 'PALPLUSS') {
+          // Route the collected rent to the property's own PalPluss channel
+          // (landlord's till/paybill); falls back to the platform default
+          // channel when the property has none.
+          const stk = await palplussStkPush(phone, amount, accountRef, 'Rent payment', unitId);
+          storedRequestId = stk.transactionId;
         } else {
           const stk = await darajaStkPush(phone, amount, accountRef, 'Rent payment');
           storedRequestId = stk.transactionId;
@@ -410,7 +420,11 @@ export async function POST(request: Request) {
       } catch (stkError) {
         console.error(`[Payment] ${provider} STK push failed:`, stkError);
         await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
-        if (stkError instanceof PayheroApiError || stkError instanceof DarajaApiError) {
+        if (
+          stkError instanceof PayheroApiError ||
+          stkError instanceof DarajaApiError ||
+          stkError instanceof PalPlussApiError
+        ) {
           const status =
             stkError.httpStatus >= 400 && stkError.httpStatus < 600 ? stkError.httpStatus : 502;
           return NextResponse.json(
