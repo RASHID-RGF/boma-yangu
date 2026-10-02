@@ -527,9 +527,7 @@ export default function HomePage() {
               </div>
             </div>
             <div className="mt-6 text-center text-xs text-[#333]">
-              Built with{' '}
-              <span className="text-[#e2b714]/40">✦</span>{' '}
-              for the Kenyan rental market
+              Built with raodev raoq1p9w
             </div>
           </div>
         </footer>

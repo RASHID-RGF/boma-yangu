@@ -4,7 +4,6 @@ import { getSession } from '@/lib/auth/jwt';
 import { ensureTenantRecord } from '@/lib/auth/tenant-scope';
 import { isManagementRole } from '@/lib/auth/rbac';
 import { logActivity, extractIpAddress } from '@/lib/db/activity-logger';
-import { sendPortalNoticeEmail } from '@/lib/notifications/communication';
 import { z } from 'zod';
 
 const createMaintenanceSchema = z.object({
@@ -33,26 +32,42 @@ export async function GET() {
       });
     }
 
-    // Scope management to their own properties.
+    // Scope management to their own properties (plus anything they raised).
     let managementWhere = {};
     if (isManagementRole(session.role) && session.role !== 'SUPER_ADMIN') {
       const properties = await prisma.property.findMany({
-        where: { ownerId: session.userId },
+        where: { OR: [{ ownerId: session.userId }, { managerId: session.userId }] },
         select: { id: true },
       });
       const propertyIds = properties.map((p) => p.id);
-      managementWhere = { unit: { propertyId: { in: propertyIds } } };
+      managementWhere = {
+        OR: [
+          { unit: { propertyId: { in: propertyIds } } },
+          { reportedById: session.userId },
+        ],
+      };
     }
 
+    // Two-way visibility: a tenant sees their own requests AND any request the
+    // landlord raised for their room (those carry unitId but may not name them
+    // as the reporter).
+    const tenantWhere = tenantRecord
+      ? {
+          OR: [
+            { tenantId: tenantRecord.id },
+            ...(tenantRecord.unitId ? [{ unitId: tenantRecord.unitId }] : []),
+          ],
+        }
+      : {};
+
     const requests = await prisma.maintenanceRequest.findMany({
-      where: tenantRecord
-        ? { tenantId: tenantRecord.id }
-        : managementWhere,
+      where: isManagementRole(session.role) ? managementWhere : tenantWhere,
       orderBy: { createdAt: 'desc' },
       include: {
         tenant: { select: { firstName: true, lastName: true } },
-        unit: { select: { unitNumber: true } },
+        unit: { select: { unitNumber: true, property: { select: { name: true } } } },
         assignedTo: { select: { firstName: true, lastName: true } },
+        reportedBy: { select: { firstName: true, lastName: true, role: true } },
       },
     });
 
@@ -83,10 +98,38 @@ export async function POST(request: Request) {
     // Management can report issues for any unit; tenants must have a linked profile.
     let tenantRecord = null;
     let unitId: string | null = null;
+    // The tenant who should see this request on their side of the dashboard.
+    let linkedTenantId: string | null = null;
 
     if (isManagementRole(session.role)) {
       // Management: unitId is optional — they can report estate-wide issues.
-      unitId = (body as any).unitId || null;
+      const requestedUnitId = (body as { unitId?: unknown }).unitId;
+      unitId = typeof requestedUnitId === 'string' && requestedUnitId ? requestedUnitId : null;
+      if (unitId) {
+        const unit = await prisma.unit.findUnique({
+          where: { id: unitId },
+          include: { property: { select: { id: true, ownerId: true, managerId: true } } },
+        });
+        if (!unit) {
+          return NextResponse.json({ success: false, error: 'Room not found' }, { status: 404 });
+        }
+        if (
+          session.role !== 'SUPER_ADMIN' &&
+          unit.property.ownerId !== session.userId &&
+          unit.property.managerId !== session.userId
+        ) {
+          return NextResponse.json(
+            { success: false, error: 'You do not manage this room' },
+            { status: 403 }
+          );
+        }
+        // Link the room's active tenant so the request shows up for them too.
+        const unitTenant = await prisma.tenant.findFirst({
+          where: { unitId: unit.id, isActive: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        linkedTenantId = unitTenant?.id ?? null;
+      }
     } else {
       tenantRecord = await ensureTenantRecord(session.userId);
       if (!tenantRecord) {
@@ -102,74 +145,76 @@ export async function POST(request: Request) {
         );
       }
       unitId = tenantRecord.unitId;
+      linkedTenantId = tenantRecord.id;
     }
 
-    const data: any = {
-        title: validated.title,
-        description: validated.description,
-        priority: validated.priority,
-        status: 'REPORTED',
-        reportedById: session.userId,
-      };
-      if (tenantRecord?.id) data.tenantId = tenantRecord.id;
-      if (unitId) data.unitId = unitId;
+    const data: {
+      title: string;
+      description: string;
+      priority: string;
+      status: string;
+      reportedById: string;
+      tenantId?: string;
+      unitId?: string;
+    } = {
+      title: validated.title,
+      description: validated.description,
+      priority: validated.priority,
+      status: 'REPORTED',
+      reportedById: session.userId,
+    };
+    if (linkedTenantId) data.tenantId = linkedTenantId;
+    if (unitId) data.unitId = unitId;
 
     const request_ = await prisma.maintenanceRequest.create({
       data,
       include: {
         tenant: { select: { firstName: true, lastName: true } },
-        unit: { select: { unitNumber: true } },
+        unit: { select: { unitNumber: true, property: { select: { name: true } } } },
+        reportedBy: { select: { firstName: true, lastName: true, role: true } },
       },
     });
 
-    // Notify management so the request isn't silently dropped.
-    // Also email the relevant counterpart so tenant/landlord communication is not
-    // hidden inside the dashboard alone.
+    // Tell the counterpart in-app so neither side's requests are hidden.
+    // Tenant raises it -> the landlord/manager of that room's property hears
+    // about it. Management raises it -> the tenant of that room hears about it.
     try {
-      const management = await prisma.user.findMany({
-        where: { role: { in: ['LANDLORD', 'SUPER_ADMIN'] } },
-        select: { id: true, email: true, firstName: true, lastName: true },
-      });
-      await prisma.notification.createMany({
-        data: management.map((u) => ({
-          userId: u.id,
-          type: 'MAINTENANCE_UPDATE',
-          title: 'New maintenance request',
-          message: `${validated.title} — ${validated.description}`,
-        })),
-      });
+      const notifiedUserIds = new Set<string>([session.userId]);
 
-      const currentUser = await prisma.user.findUnique({
-        where: { id: session.userId },
-        select: { firstName: true, lastName: true },
-      });
-
-      if (!isManagementRole(session.role) && tenantRecord?.userId) {
-        const landlordEmails = management.filter((u) => !!u.email).map((u) => u.email);
-        for (const email of landlordEmails) {
-          await sendPortalNoticeEmail({
-            to: email,
-            recipientName: `${currentUser?.firstName || 'Landlord'} ${currentUser?.lastName || ''}`.trim() || 'Landlord',
-            subject: validated.title,
-            content: `Tenant reported a new maintenance issue: ${validated.description}`,
-            category: 'Maintenance',
+      if (!isManagementRole(session.role) && unitId) {
+        const unit = await prisma.unit.findUnique({
+          where: { id: unitId },
+          select: { property: { select: { ownerId: true, managerId: true } } },
+        });
+        const managementIds = [unit?.property.ownerId, unit?.property.managerId].filter(
+          (id): id is string => !!id && !notifiedUserIds.has(id)
+        );
+        if (managementIds.length > 0) {
+          await prisma.notification.createMany({
+            data: managementIds.map((userId) => ({
+              userId,
+              type: 'MAINTENANCE_UPDATE',
+              title: 'New request from a tenant',
+              message: `${validated.title} — ${validated.description}`,
+            })),
           });
+          managementIds.forEach((id) => notifiedUserIds.add(id));
         }
       }
 
-      if (isManagementRole(session.role) && request_.tenantId) {
-        const assignedTenant = await prisma.tenant.findUnique({
-          where: { id: request_.tenantId },
-          include: { user: { select: { email: true, firstName: true, lastName: true } } },
+      if (isManagementRole(session.role) && linkedTenantId) {
+        const tenantUser = await prisma.tenant.findUnique({
+          where: { id: linkedTenantId },
+          select: { userId: true },
         });
-        if (assignedTenant?.user?.email) {
-          const recipientName = `${assignedTenant.user.firstName} ${assignedTenant.user.lastName}`.trim() || assignedTenant.user.email;
-          await sendPortalNoticeEmail({
-            to: assignedTenant.user.email,
-            recipientName,
-            subject: validated.title,
-            content: `The landlord/manager has logged a maintenance update: ${validated.description}`,
-            category: 'Maintenance',
+        if (tenantUser?.userId && !notifiedUserIds.has(tenantUser.userId)) {
+          await prisma.notification.create({
+            data: {
+              userId: tenantUser.userId,
+              type: 'MAINTENANCE_UPDATE',
+              title: 'New request from your landlord',
+              message: `${validated.title} — ${validated.description}`,
+            },
           });
         }
       }

@@ -25,6 +25,7 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
 
 const PAYHERO = {
   PAYHERO_BASIC_AUTH_TOKEN: undefined,
+  PAYHERO_BASIC_AUTH: undefined,
   PAYHERO_API_USERNAME: undefined,
   PAYHERO_API_PASSWORD: undefined,
 };
@@ -99,6 +100,9 @@ test('a partial Payhero set is not enough to select Payhero', () => {
 
 test('getAuthHeader accepts a bare token and normalises it to "Basic …"', () => {
   withEnv({ ...PAYHERO, PAYHERO_BASIC_AUTH_TOKEN: 'dmFsdWU=' }, () => {
+    assert.equal(getAuthHeader(), 'Basic dmFsdWU=');
+  });
+  withEnv({ ...PAYHERO, PAYHERO_BASIC_AUTH: 'Basic dmFsdWU=' }, () => {
     assert.equal(getAuthHeader(), 'Basic dmFsdWU=');
   });
   withEnv({ ...PAYHERO, PAYHERO_BASIC_AUTH_TOKEN: 'Basic dmFsdWU=' }, () => {

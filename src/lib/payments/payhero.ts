@@ -44,7 +44,7 @@ export function isPayheroConfigured(): boolean {
  * the username/password pair.
  */
 export function getAuthHeader(): string {
-  const token = process.env.PAYHERO_BASIC_AUTH_TOKEN?.trim();
+  const token = process.env.PAYHERO_BASIC_AUTH_TOKEN?.trim() || process.env.PAYHERO_BASIC_AUTH?.trim();
   if (token) return token.startsWith('Basic ') ? token : `Basic ${token}`;
 
   const username = process.env.PAYHERO_API_USERNAME?.trim();

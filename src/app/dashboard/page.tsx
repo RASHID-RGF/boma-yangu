@@ -25,6 +25,7 @@ const MANAGEMENT_ACTIONS = [
 
 // Available to everyone (maintenance concerns all roles)
 const GENERAL_ACTIONS = [
+  { label: 'New Request', href: '/maintenance/new', icon: Plus, color: 'bg-rose-500' },
   { label: 'Report Issue', href: '/maintenance', icon: Wrench, color: 'bg-amber-500' },
 ];
 

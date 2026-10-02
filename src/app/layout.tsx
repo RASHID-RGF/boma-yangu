@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   title: 'Boma Yangu - Rental Management System',
   description: 'Modern rental management system for the Kenyan real estate market',
   keywords: ['rental management', 'property management', 'kenya', 'boma yangu', 'rent collection'],
-  metadataBase: new URL('http://localhost:3000'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'),
   openGraph: {
     title: 'Boma Yangu - Rental Management System',
     description: 'Modern rental management system for the Kenyan real estate market',

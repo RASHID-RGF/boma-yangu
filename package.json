@@ -4,7 +4,8 @@
   "description": "Boma Yangu - Modern Rental Management System for the Kenyan Market",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NEXT_PUBLIC_APP_URL=http://localhost:3001 NEXT_DIST_DIR=.next-dev next dev -p 3001",
+    "dev:clean": "NEXT_PUBLIC_APP_URL=http://localhost:3001 NEXT_DIST_DIR=.next-dev sh -c 'rm -rf .next-dev && next dev -p 3001'",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

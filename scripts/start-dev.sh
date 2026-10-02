@@ -1,3 +1,3 @@
 #!/bin/bash
-unset DATABASE_URL
-exec npx next dev -p 3000
+export NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-http://localhost:3001}"
+exec npx next dev -p 3001
