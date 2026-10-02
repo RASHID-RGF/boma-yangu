@@ -260,6 +260,20 @@ export async function POST(request: Request) {
       },
     });
 
+    // Only the newest STK push for a tenant should remain active. Older
+    // PENDING M-Pesa payments are stale and can otherwise be matched by the
+    // callback/status polling logic and keep the countdown alive even after the
+    // customer has already completed the latest payment.
+    await prisma.payment.updateMany({
+      where: {
+        tenantId: payment.tenantId,
+        status: 'PENDING',
+        method: 'MPESA_STK_PUSH',
+        id: { not: payment.id },
+      },
+      data: { status: 'CANCELLED' },
+    });
+
     // Hosted-link path: create the PENDING record and return immediately — the
     // tenant completes payment on the PalPluss checkout page and the webhook
     // finalizes the record (matched by phone + amount). Cancel any earlier

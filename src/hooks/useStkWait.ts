@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isTerminalPaymentStatus } from '@/lib/payments/status';
 
 /** How long the tenant's screen waits for the M-Pesa PIN entry — 2 minutes. */
 export const STK_WAIT_MS = 120_000;
@@ -21,11 +22,11 @@ const INITIAL_STATE: StkWaitState = { phase: 'idle', secondsLeft: STK_WAIT_MS / 
 /**
  * Waits for the tenant to enter their M-Pesa PIN after an STK push.
  *
- * `start(paymentId)` puts the hook into a `waiting` state with a live 60s
+ * `start(paymentId)` puts the hook into a `waiting` state with a live 2-minute
  * countdown and long-polls `GET /api/payments/[id]/status` (the server holds
  * each request up to ~55s, responding the moment the payment leaves PENDING).
  * The hook resolves to `completed` / `failed`, or `timeout` after the full
- * minute — payment records that stay PENDING simply remain pending in the
+ * 2 minutes — payment records that stay PENDING simply remain pending in the
  * payment history (the provider callback can still land later).
  *
  * The hook auto-cleans up on unmount and aborts any in-flight poll.
@@ -73,7 +74,7 @@ export function useStkWait() {
           if (paymentIdRef.current !== paymentId) return; // cancelled meanwhile
 
           const status: string | undefined = result?.data?.status;
-          if (res.ok && status && status !== 'PENDING') {
+          if (res.ok && isTerminalPaymentStatus(status)) {
             clearInterval(countdown);
             stop();
             if (status === 'COMPLETED' || status === 'PARTIAL') {

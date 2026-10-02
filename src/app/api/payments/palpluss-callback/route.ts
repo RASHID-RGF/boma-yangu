@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
           : []),
       ],
     },
+    orderBy: [{ createdAt: 'desc' }],
   });
 
   // Hosted-link fallback: no checkoutRequestId/external_reference is set for a

@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
   // resurrect a payment already marked FAILED or CANCELLED.
   const payment = await prisma.payment.findFirst({
     where: { status: 'PENDING', checkoutRequestId },
+    orderBy: [{ createdAt: 'desc' }],
     select: {
       id: true,
       amount: true,

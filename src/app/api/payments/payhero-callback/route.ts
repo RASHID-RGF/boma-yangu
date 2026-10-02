@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
             { checkoutRequestId: { endsWith: `|${checkoutRequestId}` } },
           ],
         },
+        orderBy: [{ createdAt: 'desc' }],
       })
     : null;
 

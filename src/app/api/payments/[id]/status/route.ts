@@ -68,6 +68,81 @@ interface NormalizedStatus {
   resultDesc?: string;
 }
 
+/** PalPluss transaction ids are UUIDs; Daraja's are `ws_CO_…`. */
+const PALPLUSS_TX_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function queryPayheroStatus(
+  reference: string,
+  storedId: string
+): Promise<NormalizedStatus | null> {
+  try {
+    const tx = await payheroQueryStatus(reference);
+    if (tx.status === 'QUEUED') return { status: 'QUEUED', id: storedId };
+    return {
+      status: tx.status,
+      // The real M-Pesa receipt becomes the transaction code; PayHero's own
+      // reference stands in when it reports none. The packed id is stored
+      // unchanged — it is already the pair the callback and this query key on.
+      id: tx.mpesaReceipt || reference,
+      receipt: tx.mpesaReceipt,
+      resultDesc: tx.resultDesc,
+    };
+  } catch (error) {
+    console.warn(
+      '[Payment Status] PayHero query failed (will retry):',
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
+}
+
+async function queryPalplussStatus(transactionId: string): Promise<NormalizedStatus | null> {
+  try {
+    const tx = await palplussQueryStatus(transactionId);
+    if (!tx) return null;
+    return {
+      status: FAILED_STATUSES.has(tx.status)
+        ? 'FAILED'
+        : tx.status === 'SUCCESS'
+          ? 'SUCCESS'
+          : 'QUEUED',
+      id: tx.transaction_id,
+      storeAsCheckoutId: tx.transaction_id,
+      amount: tx.amount,
+      phone: tx.phone_number,
+      resultDesc: tx.result_desc ?? undefined,
+    };
+  } catch (error) {
+    console.warn(
+      '[Payment Status] PalPluss query failed (will retry):',
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
+}
+
+async function queryDarajaStatus(checkoutRequestId: string): Promise<NormalizedStatus | null> {
+  try {
+    const tx = await darajaQueryStatus(checkoutRequestId);
+    if (!tx) return null;
+    if (tx.status === 'QUEUED') return { status: 'QUEUED', id: checkoutRequestId };
+    return {
+      status: tx.status,
+      // The STK query carries no amount or phone — leaving them undefined
+      // makes finalizePayment keep the recorded figures, which is correct.
+      id: tx.receipt || checkoutRequestId,
+      receipt: tx.receipt,
+      resultDesc: tx.resultDesc,
+    };
+  } catch (error) {
+    console.warn(
+      '[Payment Status] Daraja query failed (will retry):',
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
+}
+
 /**
  * Asks the owning provider directly for the STK outcome. In-progress answers
  * (QUEUED / network blips) return null — the webhook (or a later poll) still
@@ -75,84 +150,32 @@ interface NormalizedStatus {
  */
 async function queryProviderStatus(checkoutRequestId: string): Promise<NormalizedStatus | null> {
   // PayHero packs its ids as `reference|CheckoutRequestID`, so the `|` marks
-  // the owning provider and routes the payment with no schema change. Rows
-  // without the marker fall through to Daraja (the legacy provider), then to
-  // PayHero for environments where it is the only STK provider configured.
+  // the owning provider and routes the payment with no schema change.
   const packed = unpackPayheroIds(checkoutRequestId);
-  const usePayhero = !!packed || isPayheroConfigured();
+  if (packed) return queryPayheroStatus(packed.reference, checkoutRequestId);
 
-  if (usePayhero) {
-    const reference = packed?.reference ?? checkoutRequestId;
-    try {
-      const tx = await payheroQueryStatus(reference);
-      if (tx.status === 'QUEUED') return { status: 'QUEUED', id: reference };
-      return {
-        status: tx.status,
-        // The real M-Pesa receipt becomes the transaction code; PayHero's own
-        // reference stands in when it reports none. The packed id is stored
-        // unchanged — it is already the pair the callback and this query key on.
-        id: tx.mpesaReceipt || reference,
-        receipt: tx.mpesaReceipt,
-        resultDesc: tx.resultDesc,
-      };
-    } catch (error) {
-      console.warn(
-        '[Payment Status] PayHero query failed (will retry):',
-        error instanceof Error ? error.message : error
-      );
-      return null;
-    }
+  // Route by ownership: querying the wrong provider can never resolve, which
+  // used to leave PalPluss payments PENDING (and the tenant's screen waiting)
+  // forever when PayHero credentials were also present.
+  if (isPalplussConfigured() && PALPLUSS_TX_ID_RE.test(checkoutRequestId)) {
+    return queryPalplussStatus(checkoutRequestId);
   }
 
-  // PalPluss is the next provider in the stack when PayHero is not active.
+  // Daraja owns every STK push it issued (`ws_CO_…` ids) and remains the
+  // default route for the ids it wrote.
+  if (isDarajaConfigured()) return queryDarajaStatus(checkoutRequestId);
+
+  // Unknown owner (legacy rows written before the current providers): ask each
+  // configured provider in turn — one that does not know the id errors out and
+  // the chain falls through to the actual owner.
+  if (isPayheroConfigured()) {
+    const fromPayhero = await queryPayheroStatus(checkoutRequestId, checkoutRequestId);
+    if (fromPayhero) return fromPayhero;
+  }
   if (isPalplussConfigured()) {
-    try {
-      const tx = await palplussQueryStatus(checkoutRequestId);
-      if (!tx) return null;
-      return {
-        status: FAILED_STATUSES.has(tx.status)
-          ? 'FAILED'
-          : tx.status === 'SUCCESS'
-            ? 'SUCCESS'
-            : 'QUEUED',
-        id: tx.transaction_id,
-        storeAsCheckoutId: tx.transaction_id,
-        amount: tx.amount,
-        phone: tx.phone_number,
-        resultDesc: tx.result_desc ?? undefined,
-      };
-    } catch (error) {
-      console.warn(
-        '[Payment Status] PalPluss query failed (will retry):',
-        error instanceof Error ? error.message : error
-      );
-      return null;
-    }
+    const fromPalpluss = await queryPalplussStatus(checkoutRequestId);
+    if (fromPalpluss) return fromPalpluss;
   }
-
-  // Daraja owns every STK push it issued. It remains the final fallback.
-  if (isDarajaConfigured()) {
-    try {
-      const tx = await darajaQueryStatus(checkoutRequestId);
-      if (!tx) return null;
-      if (tx.status === 'QUEUED') return { status: 'QUEUED', id: checkoutRequestId };
-      return {
-        status: tx.status,
-        // The STK query carries no amount or phone — leaving them undefined
-        // makes finalizePayment keep the recorded figures, which is correct.
-        id: tx.receipt || checkoutRequestId,
-        receipt: tx.receipt,
-        resultDesc: tx.resultDesc,
-      };
-    } catch (error) {
-      console.warn(
-        '[Payment Status] Daraja query failed (will retry):',
-        error instanceof Error ? error.message : error
-      );
-      return null;
-    }
-  }
-
   return null;
 }
 
@@ -249,7 +272,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
       }
     }
 
-    // Wait budget: capped at 1 minute. The client passes `wait` so each request
+    // Wait budget: capped at 2 minutes. The client passes `wait` so each request
     // stays under common 60s proxy timeouts.
     const url = new URL(request.url);
     const waitParam = Number(url.searchParams.get('wait'));
@@ -259,7 +282,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     );
 
     // Long-poll: hold the request open until the tenant's PIN entry finalizes
-    // the payment via the provider callback, or the window elapses. Early exit
+    // the payment via the provider callback, or the full 2-minute window elapses.
     // when the client disconnects (`request.signal`). While waiting, the
     // provider itself is polled as a webhook fallback so the wait always ends
     // in a terminal status.
